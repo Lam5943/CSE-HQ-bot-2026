@@ -259,6 +259,9 @@ def test_project_context_permissions_recent_activity_search_and_empty_state(serv
     assert search_results
     assert all(isinstance(result, dict) for result in search_results)
     assert {"source_type", "source_id", "title", "snippet", "timestamp", "relevance_hint"} <= set(search_results[0])
+    meeting_only_results = services["context"].search_project_memory(owner, "docs", domains=["meetings"], limit=10)
+    assert meeting_only_results
+    assert all(result["source_type"] == "meeting" for result in meeting_only_results)
     with pytest.raises(InvalidInputError):
         services["context"].search_project_memory(owner, "docs", domains=["unknown"])
 

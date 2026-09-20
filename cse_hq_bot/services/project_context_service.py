@@ -72,7 +72,8 @@ class ProjectContextService:
             for task in self.task_service.list_accessible_tasks(actor)
             if task.get("assignee_id") == subject_id
         ]
-        today = self.standup_service.today_for_actor(actor)
+        subject_actor = actor if subject_id == actor.user_id else Actor(subject_id, Role.MEMBER)
+        today = self.standup_service.today_for_actor(subject_actor)
         standup = next(
             (
                 entry
@@ -201,14 +202,14 @@ class ProjectContextService:
                 self._standup_search_result(standup, needle)
                 for standup in self.standup_service.search_standups(actor, needle)
             )
-            results.sort(
-                key=lambda item: (
-                    0 if item["relevance_hint"].startswith("title") else 1,
-                    -self._timestamp_sort_key(item["timestamp"]),
-                    item["source_id"],
-                )
+        results.sort(
+            key=lambda item: (
+                0 if item["relevance_hint"].startswith("title") else 1,
+                -self._timestamp_sort_key(item["timestamp"]),
+                item["source_id"],
             )
-            return results[: self._normalize_limit(limit)]
+        )
+        return results[: self._normalize_limit(limit)]
 
     def _collect_accessible_activity(self, actor: Actor, limit: int, loader) -> list[dict]:
         target_limit = self._normalize_limit(limit)
