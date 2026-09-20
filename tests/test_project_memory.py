@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from cse_hq_bot.errors import InvalidTransitionError, NotFoundError, PermissionD
 from cse_hq_bot.models import Actor, MeetingStatus, Role
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
+from cse_hq_bot.services.collab_service import CollaborationService
 from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.standup_service import StandupService
@@ -262,3 +264,23 @@ def test_database_initialize_migrates_existing_collaboration_schema(tmp_path: Pa
     assert standup["user_id"] == "member"
     assert standup["date"] == "2026-09-20"
     assert "source_meeting_id" in task_columns
+
+
+def test_collaboration_service_compatibility_wrappers_preserve_legacy_inputs(tmp_path: Path):
+    db = Database(str(tmp_path / "compat.db"))
+    db.initialize()
+    repo = CollaborationRepository(db)
+    collab = CollaborationService(repo)
+    leader = Actor("lead", Role.LEADER)
+    member = Actor("member", Role.MEMBER)
+
+    meeting_id = collab.schedule_meeting(leader, "Legacy Meeting", "Legacy notes", "2026-09-20")
+    collab.submit_standup(member, "Legacy update", "Blocked by review")
+
+    meeting = repo.get_meeting(meeting_id)
+    standup = repo.get_standup_for_user_date("member", date.today().isoformat())
+
+    assert meeting["meeting_date"] == "2026-09-20 00:00"
+    assert standup is not None
+    assert standup["previous"] == ""
+    assert standup["current"] == "Legacy update"

@@ -1,3 +1,5 @@
+from datetime import date
+
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.meeting_service import MeetingService
@@ -11,12 +13,19 @@ class CollaborationService:
         self.standup_service = StandupService(repo)
 
     def schedule_meeting(self, actor, title: str, notes: str, meeting_date: str) -> int:
+        scheduled_at = meeting_date
+        stripped = meeting_date.strip()
+        if stripped:
+            try:
+                scheduled_at = f"{date.fromisoformat(stripped).isoformat()} 00:00"
+            except ValueError:
+                scheduled_at = meeting_date
         return self.meeting_service.create_meeting(
             actor,
             title=title,
             description="",
             agenda=notes,
-            scheduled_at=meeting_date,
+            scheduled_at=scheduled_at,
         )
 
     def record_decision(self, actor, summary: str, meeting_id: int | None = None) -> int:
@@ -31,11 +40,12 @@ class CollaborationService:
         )
 
     def submit_standup(self, actor, update_text: str, blockers: str = "") -> int:
-        return self.standup_service.submit_standup(
-            actor,
-            previous=update_text,
+        return self.standup_service.repo.create_standup(
+            user_id=actor.user_id,
+            entry_date=date.today().isoformat(),
+            previous="",
             current=update_text,
-            blockers=blockers,
+            blockers=blockers.strip(),
         )
 
     def weekly_standup_summary(self, days: int = 7) -> dict:

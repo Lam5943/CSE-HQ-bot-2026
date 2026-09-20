@@ -1587,7 +1587,12 @@ class MeetingNoteModal(discord.ui.Modal, title="Add Meeting Note"):
             )
         except (InvalidInputError, PermissionDeniedError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
-        except (NotFoundError, InvalidTransitionError) as error:
+        except InvalidTransitionError:
+            await interaction.response.send_message(
+                "This meeting can no longer accept notes in its current state.",
+                ephemeral=True,
+            )
+        except NotFoundError as error:
             logger.exception("Meeting note add failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
         except CSEHQError as error:
@@ -2012,7 +2017,12 @@ class MeetingsView(OwnedView):
             await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting started.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to start this meeting.", ephemeral=True)
-        except (NotFoundError, InvalidTransitionError) as error:
+        except InvalidTransitionError:
+            await interaction.response.send_message(
+                "This meeting cannot be started from its current state.",
+                ephemeral=True,
+            )
+        except NotFoundError as error:
             logger.exception("Meeting start failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
 
@@ -2029,7 +2039,12 @@ class MeetingsView(OwnedView):
             await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting completed.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to complete this meeting.", ephemeral=True)
-        except (NotFoundError, InvalidTransitionError) as error:
+        except InvalidTransitionError:
+            await interaction.response.send_message(
+                "This meeting cannot be completed from its current state.",
+                ephemeral=True,
+            )
+        except NotFoundError as error:
             logger.exception("Meeting complete failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
 
@@ -2046,7 +2061,12 @@ class MeetingsView(OwnedView):
             await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting cancelled.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to cancel this meeting.", ephemeral=True)
-        except (NotFoundError, InvalidTransitionError) as error:
+        except InvalidTransitionError:
+            await interaction.response.send_message(
+                "This meeting cannot be cancelled from its current state.",
+                ephemeral=True,
+            )
+        except NotFoundError as error:
             logger.exception("Meeting cancel failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
 
