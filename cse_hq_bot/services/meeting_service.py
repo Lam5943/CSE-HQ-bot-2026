@@ -1,9 +1,15 @@
+import logging
 from datetime import UTC, date, datetime
 
 from cse_hq_bot.errors import InvalidInputError, InvalidTransitionError, NotFoundError, PermissionDeniedError
+from cse_hq_bot.identifiers import meeting_code
 from cse_hq_bot.models import Actor, MeetingStatus, Role
 from cse_hq_bot.permissions import ensure_can_manage_meetings
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class MeetingService:
@@ -19,8 +25,9 @@ class MeetingService:
         MeetingStatus.CANCELLED.value: set(),
     }
 
-    def __init__(self, repo: CollaborationRepository):
+    def __init__(self, repo: CollaborationRepository, activity_repo: ActivityRepository | None = None):
         self.repo = repo
+        self.activity_repo = activity_repo
 
     def create_meeting(
         self,
@@ -33,7 +40,7 @@ class MeetingService:
         ensure_can_manage_meetings(actor)
         clean_title = self._require_text(title, "Meeting title is required")
         clean_scheduled_at = self._normalize_datetime(scheduled_at)
-        return self.repo.create_meeting(
+        meeting_id = self.repo.create_meeting(
             title=clean_title,
             description=description.strip(),
             agenda=agenda.strip(),
@@ -41,6 +48,18 @@ class MeetingService:
             created_by=actor.user_id,
             scheduled_at=clean_scheduled_at,
         )
+        meeting = self.repo.get_meeting(meeting_id)
+        self._append_activity(
+            "MEETING_CREATED",
+            meeting,
+            actor.user_id,
+            {
+                "row_id": meeting_id,
+                "status": meeting["status"],
+                "scheduled_at": meeting.get("scheduled_at"),
+            },
+        )
+        return meeting_id
 
     def list_meetings(self, actor: Actor, *, status: str | None = None) -> list[dict]:
         meetings = self.repo.list_meetings()
@@ -48,6 +67,9 @@ class MeetingService:
             status_value = MeetingStatus(status).value
             meetings = [meeting for meeting in meetings if meeting.get("status") == status_value]
         return meetings
+
+    def list_accessible_meetings(self, actor: Actor, *, status: str | None = None) -> list[dict]:
+        return self.list_meetings(actor, status=status)
 
     def get_meeting(self, actor: Actor, meeting_id: int) -> dict:
         return self.repo.get_meeting(meeting_id)
@@ -67,7 +89,19 @@ class MeetingService:
 
     def add_participant(self, actor: Actor, meeting_id: int, user_id: str) -> None:
         ensure_can_manage_meetings(actor)
-        self.repo.add_meeting_participant(meeting_id, self._require_text(user_id, "Participant user ID is required"), actor.user_id)
+        clean_user_id = self._require_text(user_id, "Participant user ID is required")
+        added = self.repo.add_meeting_participant(meeting_id, clean_user_id, actor.user_id)
+        if added:
+            meeting = self.repo.get_meeting(meeting_id)
+            self._append_activity(
+                "MEETING_PARTICIPANT_ADDED",
+                meeting,
+                actor.user_id,
+                {
+                    "row_id": meeting_id,
+                    "user_id": clean_user_id,
+                },
+            )
 
     def remove_participant(self, actor: Actor, meeting_id: int, user_id: str) -> None:
         ensure_can_manage_meetings(actor)
@@ -80,7 +114,29 @@ class MeetingService:
     def add_note(self, actor: Actor, meeting_id: int, content: str) -> int:
         meeting = self.get_meeting(actor, meeting_id)
         self._ensure_can_add_note(actor, meeting_id, meeting)
-        return self.repo.create_meeting_note(meeting_id, actor.user_id, self._require_text(content, "Meeting note is required"))
+        note_id = self.repo.create_meeting_note(meeting_id, actor.user_id, self._require_text(content, "Meeting note is required"))
+        self._append_activity(
+            "MEETING_NOTE_ADDED",
+            meeting,
+            actor.user_id,
+            {
+                "row_id": meeting_id,
+                "note_id": note_id,
+                "author_id": actor.user_id,
+            },
+        )
+        return note_id
+
+    def search_meetings(self, actor: Actor, query: str) -> list[dict]:
+        needle = self._require_text(query, "Search text is required").lower()
+        return [
+            meeting
+            for meeting in self.list_meetings(actor)
+            if any(
+                needle in (meeting.get(field) or "").lower()
+                for field in ("code", "title", "description", "agenda", "status", "scheduled_at")
+            )
+        ]
 
     def edit_note(self, actor: Actor, note_id: int, content: str) -> None:
         note = self.repo.get_meeting_note(note_id)
@@ -94,13 +150,24 @@ class MeetingService:
     def _transition_meeting(self, actor: Actor, meeting_id: int, status: str, **fields: str) -> None:
         ensure_can_manage_meetings(actor)
         meeting = self.repo.get_meeting(meeting_id)
+        current_status = meeting["status"]
         target_status = MeetingStatus(status).value
-        if target_status not in self._TRANSITIONS.get(meeting["status"], set()):
+        if target_status not in self._TRANSITIONS.get(current_status, set()):
             raise InvalidTransitionError(
-                f"Invalid meeting status transition: {meeting['status']} -> {target_status}"
+                f"Invalid meeting status transition: {current_status} -> {target_status}"
             )
         update_fields = {"status": target_status, **fields}
         self.repo.update_meeting(meeting_id, update_fields)
+        self._append_activity(
+            "MEETING_STATUS_CHANGED",
+            meeting,
+            actor.user_id,
+            {
+                "row_id": meeting_id,
+                "from": current_status,
+                "to": target_status,
+            },
+        )
 
     def _ensure_can_add_note(self, actor: Actor, meeting_id: int, meeting: dict) -> None:
         if meeting.get("status") not in {MeetingStatus.SCHEDULED.value, MeetingStatus.IN_PROGRESS.value}:
@@ -132,3 +199,20 @@ class MeetingService:
 
     def _now(self) -> str:
         return datetime.now(UTC).isoformat(sep=" ", timespec="seconds")
+
+    def _append_activity(self, event_type: str, meeting: dict, actor_id: str, metadata: dict) -> None:
+        if not self.activity_repo:
+            return
+        try:
+            self.activity_repo.append(
+                event_type=event_type,
+                entity_type="meeting",
+                entity_id=meeting_code(meeting),
+                actor_id=actor_id,
+                metadata=metadata,
+            )
+        except Exception:  # pragma: no cover - defensive logging path
+            logger.exception(
+                "Failed to append meeting activity",
+                extra={"event_type": event_type, "meeting_id": meeting["id"]},
+            )

@@ -35,3 +35,15 @@ def ensure_can_manage_meetings(actor: Actor) -> None:
 
 def ensure_can_manage_decisions(actor: Actor) -> None:
     ensure_can_manage_project(actor)
+
+
+def ensure_can_view_member_context(actor: Actor, target_user_id: str) -> None:
+    if actor.role in LEADERSHIP_ROLES or actor.user_id == target_user_id:
+        return
+    raise PermissionDeniedError("You are not allowed to view another member's work context")
+
+
+def ensure_can_view_standup(actor: Actor, user_id: str) -> None:
+    if actor.role in LEADERSHIP_ROLES or actor.user_id == user_id:
+        return
+    raise PermissionDeniedError("You are not allowed to view this standup")

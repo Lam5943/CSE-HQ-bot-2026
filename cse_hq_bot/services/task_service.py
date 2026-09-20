@@ -1,7 +1,14 @@
+import logging
+
 from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
+from cse_hq_bot.identifiers import task_code
 from cse_hq_bot.models import Actor, Role, TaskStatus
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.permissions import ensure_can_modify_task
 from cse_hq_bot.repositories.task_repository import TaskRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -24,8 +31,9 @@ class TaskService:
         },
     }
 
-    def __init__(self, repo: TaskRepository):
+    def __init__(self, repo: TaskRepository, activity_repo: ActivityRepository | None = None):
         self.repo = repo
+        self.activity_repo = activity_repo
 
     def create_task(
         self,
@@ -37,7 +45,7 @@ class TaskService:
         deadline: str | None = None,
         source_meeting_id: int | None = None,
     ) -> int:
-        return self.repo.create(
+        task_id = self.repo.create(
             title=title,
             description=description,
             priority=priority,
@@ -46,6 +54,19 @@ class TaskService:
             deadline=deadline,
             source_meeting_id=source_meeting_id,
         )
+        task = self.repo.get(task_id)
+        self._append_activity(
+            "TASK_CREATED",
+            task,
+            actor.user_id,
+            {
+                "row_id": task_id,
+                "status": task["status"],
+                "assignee_id": task.get("assignee_id"),
+                "source_meeting_id": task.get("source_meeting_id"),
+            },
+        )
+        return task_id
 
     def list_tasks(self) -> list[dict]:
         return self.repo.list_all()
@@ -130,7 +151,47 @@ class TaskService:
             if key in {"title", "description", "status", "priority", "assignee_id", "deadline"}
             and value is not None
         }
+        status_from = task["status"]
+        assignee_from = task.get("assignee_id")
+        changed_fields = [key for key, value in valid.items() if task.get(key) != value]
         self.repo.update(task_id, valid)
+        if "status" in valid and task["status"] != valid["status"]:
+            self._append_activity(
+                "TASK_STATUS_CHANGED",
+                task,
+                actor.user_id,
+                {
+                    "row_id": task_id,
+                    "from": status_from,
+                    "to": valid["status"],
+                },
+            )
+        if "assignee_id" in valid and assignee_from != valid["assignee_id"]:
+            self._append_activity(
+                "TASK_ASSIGNED",
+                task,
+                actor.user_id,
+                {
+                    "row_id": task_id,
+                    "from": assignee_from,
+                    "to": valid["assignee_id"],
+                },
+            )
+        edit_fields = sorted(
+            field
+            for field in changed_fields
+            if field not in {"status", "assignee_id"}
+        )
+        if edit_fields:
+            self._append_activity(
+                "TASK_EDITED",
+                task,
+                actor.user_id,
+                {
+                    "row_id": task_id,
+                    "changed_fields": edit_fields,
+                },
+            )
 
     def assign_task(self, actor: Actor, task_id: int, assignee_id: str | None) -> None:
         self.update_task(actor, task_id, assignee_id=assignee_id)
@@ -149,3 +210,17 @@ class TaskService:
 
     def complete_task(self, actor: Actor, task_id: int) -> None:
         self.transition_status(actor, task_id, TaskStatus.DONE.value)
+
+    def _append_activity(self, event_type: str, task: dict, actor_id: str, metadata: dict) -> None:
+        if not self.activity_repo:
+            return
+        try:
+            self.activity_repo.append(
+                event_type=event_type,
+                entity_type="task",
+                entity_id=task_code(task),
+                actor_id=actor_id,
+                metadata=metadata,
+            )
+        except Exception:  # pragma: no cover - defensive logging path
+            logger.exception("Failed to append task activity", extra={"event_type": event_type, "task_id": task["id"]})

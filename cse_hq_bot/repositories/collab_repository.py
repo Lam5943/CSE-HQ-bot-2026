@@ -50,16 +50,17 @@ class CollaborationRepository:
     def update_meeting(self, meeting_id: int, fields: dict) -> None:
         self._update_row("meetings", "Meeting", meeting_id, fields)
 
-    def add_meeting_participant(self, meeting_id: int, user_id: str, added_by: str) -> None:
+    def add_meeting_participant(self, meeting_id: int, user_id: str, added_by: str) -> bool:
         self.get_meeting(meeting_id)
         with self.db.connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO meeting_participants (meeting_id, user_id, added_by)
                 VALUES (?, ?, ?)
                 """,
                 (meeting_id, user_id, added_by),
             )
+            return cur.rowcount > 0
 
     def remove_meeting_participant(self, meeting_id: int, user_id: str) -> None:
         self.get_meeting(meeting_id)
