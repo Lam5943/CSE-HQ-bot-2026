@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cse_hq_bot.config import load_config
+from cse_hq_bot.errors import CSEHQError
 from cse_hq_bot.factory import ServiceContainer
 from cse_hq_bot.logging_config import configure_logging
 from cse_hq_bot.models import Actor, Role
@@ -36,46 +37,73 @@ class CSEHQBot(commands.Bot):
     async def setup_hook(self) -> None:
         @app_commands.command(name="dashboard", description="Show project dashboard")
         async def dashboard(interaction: discord.Interaction) -> None:
-            data = self.container.project_service.get_dashboard()
-            view = DashboardView(
-                owner_id=interaction.user.id,
-                actor_resolver=resolve_actor_from_interaction,
-                project_service=self.container.project_service,
-            )
-            await interaction.response.send_message(
-                embed=build_dashboard_embed(data),
-                view=view,
-                ephemeral=True,
-            )
+            try:
+                data = self.container.project_service.get_dashboard()
+                view = DashboardView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    project_service=self.container.project_service,
+                )
+                await interaction.response.send_message(
+                    embed=build_dashboard_embed(data),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Dashboard command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load dashboard right now.", ephemeral=True
+                )
+            except Exception as error:  # pragma: no cover
+                logger.exception("Unexpected dashboard command failure", exc_info=error)
+                await interaction.response.send_message("Unexpected error occurred.", ephemeral=True)
 
         @app_commands.command(name="tasks", description="Open task management panel")
         async def tasks(interaction: discord.Interaction) -> None:
-            data = self.container.task_service.list_tasks()
-            view = TasksView(
-                owner_id=interaction.user.id,
-                actor_resolver=resolve_actor_from_interaction,
-                task_service=self.container.task_service,
-            )
-            await interaction.response.send_message(
-                embed=build_tasks_embed(data),
-                view=view,
-                ephemeral=True,
-            )
+            try:
+                data = self.container.task_service.list_tasks()
+                view = TasksView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    task_service=self.container.task_service,
+                )
+                await interaction.response.send_message(
+                    embed=build_tasks_embed(data),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Tasks command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load tasks right now.", ephemeral=True
+                )
+            except Exception as error:  # pragma: no cover
+                logger.exception("Unexpected tasks command failure", exc_info=error)
+                await interaction.response.send_message("Unexpected error occurred.", ephemeral=True)
 
         @app_commands.command(name="bugs", description="Open bug tracking panel")
         async def bugs(interaction: discord.Interaction) -> None:
-            all_bugs = self.container.bug_service.list_bugs()
-            open_bugs = [bug for bug in all_bugs if bug["status"] != "resolved"]
-            view = BugsView(
-                owner_id=interaction.user.id,
-                actor_resolver=resolve_actor_from_interaction,
-                bug_service=self.container.bug_service,
-            )
-            await interaction.response.send_message(
-                embed=build_bugs_embed(open_bugs, show_all=False),
-                view=view,
-                ephemeral=True,
-            )
+            try:
+                all_bugs = self.container.bug_service.list_bugs()
+                open_bugs = [bug for bug in all_bugs if bug["status"] != "resolved"]
+                view = BugsView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    bug_service=self.container.bug_service,
+                )
+                await interaction.response.send_message(
+                    embed=build_bugs_embed(open_bugs, show_all=False),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Bugs command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load bugs right now.", ephemeral=True
+                )
+            except Exception as error:  # pragma: no cover
+                logger.exception("Unexpected bugs command failure", exc_info=error)
+                await interaction.response.send_message("Unexpected error occurred.", ephemeral=True)
 
         @app_commands.command(name="weekly_report", description="Show weekly report")
         async def weekly_report(interaction: discord.Interaction) -> None:
