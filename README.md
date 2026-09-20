@@ -317,6 +317,8 @@ pytest
 
 - Application-level permissions are enforced in service-layer helpers, not only through Discord visibility.
 - SQLite schema initialization is safe to run repeatedly.
+- Meaningful task, bug, meeting, decision, and standup mutations append immutable activity records after the primary write succeeds.
+- `ProjectContextService` provides permission-aware, structured project reads for future reporting and grounded retrieval without bypassing domain services.
 - The fake AI provider is the recommended default for development and automated tests.
 - Keep `.env`, Discord tokens, Gemini API keys, and production database backups out of version control.
 
