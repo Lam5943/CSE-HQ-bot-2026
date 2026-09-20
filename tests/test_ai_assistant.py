@@ -6,12 +6,14 @@ import pytest
 
 from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.ai.gemini_provider import GeminiProvider
+from cse_hq_bot.ai.provider_router import AIProviderRouter
 from cse_hq_bot.bot import CSEHQBot
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import (
     AIConfigurationError,
     AIMalformedResponseError,
     AIProviderError,
+    AIProviderUnavailableError,
     AIRateLimitError,
     AISessionBusyError,
     AISessionClosedError,
@@ -49,12 +51,19 @@ class RecordingProvider:
         self.last_messages = None
         self.last_context_records = None
 
-    async def generate(self, *, system_instruction, messages, context_records, timeout_seconds):
+    async def generate(
+        self, *, system_instruction, messages, context_records, timeout_seconds
+    ):
         self.called += 1
         self.last_system_instruction = system_instruction
         self.last_messages = messages
         self.last_context_records = context_records
         return AIProviderResponse(text=self.text)
+
+
+class FailingProvider:
+    async def generate(self, **kwargs):
+        raise AITimeoutError("primary timed out")
 
 
 @pytest.fixture
@@ -88,7 +97,9 @@ def ai_services(tmp_path: Path):
         max_context_items=4,
         request_timeout=5,
     )
-    session_service = AISessionService(AISessionRepository(db), ai_service, max_history_messages=3)
+    session_service = AISessionService(
+        AISessionRepository(db), ai_service, max_history_messages=3
+    )
     return {
         "task": task_service,
         "bug": bug_service,
@@ -165,11 +176,14 @@ class _TextPropertyFailure:
         (None, None, AIMalformedResponseError),
         (None, RuntimeError("429 rate limit"), AIRateLimitError),
         (None, RuntimeError("deadline exceeded"), AITimeoutError),
+        (None, RuntimeError("503 service unavailable"), AIProviderUnavailableError),
         (None, RuntimeError("invalid API key"), AIConfigurationError),
         (None, RuntimeError("boom"), AIProviderError),
     ],
 )
-def test_gemini_provider_normalizes_results(monkeypatch, result, error, expected_exception):
+def test_gemini_provider_normalizes_results(
+    monkeypatch, result, error, expected_exception
+):
     from cse_hq_bot.ai import gemini_provider as module
 
     models = _FakeAsyncModels(result=result, error=error)
@@ -180,7 +194,11 @@ def test_gemini_provider_normalizes_results(monkeypatch, result, error, expected
     coro = provider.generate(
         system_instruction="sys",
         messages=[AIMessage(role="user", content="hi")],
-        context_records=[RetrievedContextRecord("task", "TASK-001", "Task", "Content", None, "reason")],
+        context_records=[
+            RetrievedContextRecord(
+                "task", "TASK-001", "Task", "Content", None, "reason"
+            )
+        ],
         timeout_seconds=1,
     )
     if expected_exception is None:
@@ -207,7 +225,10 @@ def test_gemini_provider_extracts_candidate_parts(monkeypatch):
         candidates=[
             SimpleNamespace(
                 content=SimpleNamespace(
-                    parts=[SimpleNamespace(text="first"), SimpleNamespace(text="second")]
+                    parts=[
+                        SimpleNamespace(text="first"),
+                        SimpleNamespace(text="second"),
+                    ]
                 )
             )
         ],
@@ -283,17 +304,24 @@ def test_retrieval_planner_routes_common_questions(question, strategy):
 
 def test_ai_service_grounds_answers_and_rejects_fabricated_source_ids(ai_services):
     leader = Actor("lead", Role.LEADER)
-    ai_services["task"].create_task(leader, "Implement API", "Grounded work", 3, assignee_id="lead")
+    ai_services["task"].create_task(
+        leader, "Implement API", "Grounded work", 3, assignee_id="lead"
+    )
     ai_services["provider"].text = "Based on TASK-001 and DEC-999, the work is active."
 
     answer = asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question="What am I working on?", history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader, question="What am I working on?", history_messages=[]
+        )
     )
 
     assert answer.source_refs == ["TASK-001"]
     assert answer.invalid_source_refs == ["DEC-999"]
     assert ai_services["provider"].called == 1
-    assert any(record.source_id == "TASK-001" for record in ai_services["provider"].last_context_records)
+    assert any(
+        record.source_id == "TASK-001"
+        for record in ai_services["provider"].last_context_records
+    )
 
 
 @pytest.mark.parametrize(
@@ -325,15 +353,50 @@ def test_ai_service_validates_each_citation_shape(
     assert answer.invalid_source_refs == invalid_refs
 
 
+def test_ai_service_validates_citations_after_provider_fallback(ai_services):
+    leader = Actor("lead", Role.LEADER)
+    ai_services["task"].create_task(
+        leader, "Implement API", "Grounded work", 3, assignee_id="lead"
+    )
+    fallback = RecordingProvider("Fallback answer cites TASK-001 and TASK-999.")
+    ai_services["ai"].provider = AIProviderRouter(
+        FailingProvider(),
+        fallback,
+        fallback_enabled=True,
+    )
+
+    answer = asyncio.run(
+        ai_services["ai"].answer_question(
+            actor=leader,
+            question="What am I working on?",
+            history_messages=[],
+        )
+    )
+
+    assert answer.source_refs == ["TASK-001"]
+    assert answer.invalid_source_refs == ["TASK-999"]
+    assert fallback.called == 1
+    assert any(
+        record.source_id == "TASK-001" for record in fallback.last_context_records
+    )
+
+
 def test_ai_service_marks_missing_project_evidence_in_prompt(ai_services):
     leader = Actor("lead", Role.LEADER)
     ai_services["provider"].text = "No records found."
 
     asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question="What do project records say about quantum foam?", history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader,
+            question="What do project records say about quantum foam?",
+            history_messages=[],
+        )
     )
 
-    assert "No matching project records were retrieved" in ai_services["provider"].last_system_instruction
+    assert (
+        "No matching project records were retrieved"
+        in ai_services["provider"].last_system_instruction
+    )
     assert ai_services["provider"].last_context_records == []
 
 
@@ -349,22 +412,34 @@ def test_ai_service_treats_records_as_untrusted_content(ai_services):
     ai_services["provider"].text = "See MEETING-001"
 
     asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question="What happened in MEETING-001?", history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader, question="What happened in MEETING-001?", history_messages=[]
+        )
     )
 
-    assert "ignore prior instructions" not in ai_services["provider"].last_system_instruction.lower()
-    assert any(record.source_id == "MEETING-001" for record in ai_services["provider"].last_context_records)
+    assert (
+        "ignore prior instructions"
+        not in ai_services["provider"].last_system_instruction.lower()
+    )
+    assert any(
+        record.source_id == "MEETING-001"
+        for record in ai_services["provider"].last_context_records
+    )
     assert meeting_id == 1
 
 
 def test_ai_service_only_retrieves_authorized_context(ai_services):
     owner = Actor("owner", Role.MEMBER)
     outsider = Actor("outsider", Role.MEMBER)
-    ai_services["task"].create_task(owner, "Private task", "secret roadmap", 3, assignee_id="owner")
+    ai_services["task"].create_task(
+        owner, "Private task", "secret roadmap", 3, assignee_id="owner"
+    )
     ai_services["provider"].text = "No accessible records."
 
     asyncio.run(
-        ai_services["ai"].answer_question(actor=outsider, question="secret roadmap", history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=outsider, question="secret roadmap", history_messages=[]
+        )
     )
 
     assert ai_services["provider"].last_context_records == []
@@ -373,7 +448,9 @@ def test_ai_service_only_retrieves_authorized_context(ai_services):
 def test_mutation_requests_are_rejected_without_provider_call(ai_services):
     leader = Actor("lead", Role.LEADER)
     answer = asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question="Complete TASK-014", history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader, question="Complete TASK-014", history_messages=[]
+        )
     )
     assert "mutations are unavailable" in answer.content
     assert ai_services["provider"].called == 0
@@ -392,7 +469,9 @@ def test_direct_mutation_requests_are_rejected(ai_services, question):
     leader = Actor("lead", Role.LEADER)
 
     answer = asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question=question, history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader, question=question, history_messages=[]
+        )
     )
 
     assert answer.retrieval_strategy == "mutation_rejected"
@@ -411,7 +490,9 @@ def test_informational_mutation_questions_are_allowed(ai_services, question):
     leader = Actor("lead", Role.LEADER)
 
     answer = asyncio.run(
-        ai_services["ai"].answer_question(actor=leader, question=question, history_messages=[])
+        ai_services["ai"].answer_question(
+            actor=leader, question=question, history_messages=[]
+        )
     )
 
     assert answer.retrieval_strategy != "mutation_rejected"
@@ -420,7 +501,9 @@ def test_informational_mutation_questions_are_allowed(ai_services, question):
 def test_ai_session_service_persists_messages_and_enforces_access(ai_services):
     owner = Actor("owner", Role.MEMBER)
     other = Actor("other", Role.MEMBER)
-    ai_services["task"].create_task(owner, "Private task", "owner work", 2, assignee_id="owner")
+    ai_services["task"].create_task(
+        owner, "Private task", "owner work", 2, assignee_id="owner"
+    )
     ai_services["provider"].text = "Answer citing TASK-001"
 
     session = ai_services["sessions"].create_session(owner, "thread-1")
@@ -460,7 +543,9 @@ def test_ai_session_service_persists_messages_and_enforces_access(ai_services):
         )
 
 
-def test_ai_session_service_rejects_duplicate_thread_before_database_write(ai_services, monkeypatch):
+def test_ai_session_service_rejects_duplicate_thread_before_database_write(
+    ai_services, monkeypatch
+):
     owner = Actor("owner", Role.MEMBER)
     sessions = ai_services["sessions"]
     original = sessions.create_session(owner, "thread-1")
@@ -521,7 +606,9 @@ def test_ai_session_service_rejects_busy_requests(ai_services):
     owner = Actor("owner", Role.MEMBER)
 
     class SlowProvider(RecordingProvider):
-        async def generate(self, *, system_instruction, messages, context_records, timeout_seconds):
+        async def generate(
+            self, *, system_instruction, messages, context_records, timeout_seconds
+        ):
             self.called += 1
             await asyncio.sleep(0.05)
             return AIProviderResponse(text="done")
@@ -555,7 +642,9 @@ def test_ai_session_service_releases_busy_lock_after_provider_error(ai_services)
     owner = Actor("owner", Role.MEMBER)
 
     class FailingOnceProvider(RecordingProvider):
-        async def generate(self, *, system_instruction, messages, context_records, timeout_seconds):
+        async def generate(
+            self, *, system_instruction, messages, context_records, timeout_seconds
+        ):
             self.called += 1
             if self.called == 1:
                 raise AIProviderError("provider failed")
@@ -624,8 +713,14 @@ def test_message_content_disabled_guides_once_in_ai_session():
 
 def test_bot_safe_ai_messages_are_concise():
     bot = CSEHQBot(SimpleNamespace())
-    assert bot._safe_ai_error_message(AIProviderError("boom")) == "AI provider is unavailable right now. Please try again later."
-    assert bot._safe_ai_error_message(AISessionBusyError("busy")) == "This AI session is busy. Try again in a moment."
+    assert (
+        bot._safe_ai_error_message(AIProviderError("boom"))
+        == "AI provider is unavailable right now. Please try again later."
+    )
+    assert (
+        bot._safe_ai_error_message(AISessionBusyError("busy"))
+        == "This AI session is busy. Try again in a moment."
+    )
     assert bot._safe_ai_error_message(AISessionConflictError("conflict")) == (
         "This Discord thread is already linked to another AI session."
     )

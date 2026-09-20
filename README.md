@@ -7,7 +7,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - Weekly progress reporting
 - Grounded project Q&A through a pluggable AI provider
 - A private, read-only Gemini assistant with permission-aware project retrieval and persistent AI sessions
-- A fake AI provider for local development and an optional Google Gemini provider
+- A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
 
 ## Requirements
 
@@ -15,6 +15,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - A Discord application and bot token
 - A server or local machine that can run a long-lived Python process
 - Optional: a Google Gemini API key for Gemini-powered project Q&A and the private `/ai` assistant
+- Optional: an OpenAI API key and configured model when AI provider failover is enabled
 
 ## Local Setup
 
@@ -68,7 +69,11 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. The app fails fast with a configuration error if this is missing. |
 | `AI_MAX_CONTEXT_ITEMS` | No | `12` | Maximum bounded project records retrieved for one AI answer. |
 | `AI_MAX_HISTORY_MESSAGES` | No | `8` | Maximum persisted user/assistant messages loaded into one AI request. |
-| `AI_REQUEST_TIMEOUT` | No | `20` | Request timeout in seconds for provider calls. |
+| `AI_REQUEST_TIMEOUT` | No | `20` | Per-attempt request timeout in seconds. Failover may use one primary attempt plus one fallback attempt. |
+| `AI_FALLBACK_ENABLED` | No | `false` | Enable one OpenAI fallback attempt after an eligible Gemini availability failure. |
+| `AI_FALLBACK_PROVIDER` | No | `openai` | Fallback provider name. AI Provider Failover v1 supports only `openai`. |
+| `OPENAI_API_KEY` | Required for fallback attempts | — | OpenAI API key. It is optional at startup and unused while fallback is disabled. |
+| `OPENAI_MODEL` | Required for fallback attempts | — | Deployment-selected OpenAI model; no OpenAI model is hardcoded. |
 | `GITHUB_ENABLED` | No | `false` | Enable the optional read-only GitHub integration. |
 | `GITHUB_REPOSITORY_OWNER` | Required when GitHub is enabled | — | Owner of the single repository connected in v1. |
 | `GITHUB_REPOSITORY_NAME` | Required when GitHub is enabled | — | Repository name connected in v1. |
@@ -323,6 +328,10 @@ AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
 AI_MODEL=gemini-1.5-flash
 AI_REQUEST_TIMEOUT=20
+AI_FALLBACK_ENABLED=false
+AI_FALLBACK_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=
 ```
 
 `GEMINI_API_KEY` is required when `AI_PROVIDER=gemini`. `AI_MODEL` is passed directly to the supported `google.genai` client. `AI_REQUEST_TIMEOUT` is enforced both at the SDK request layer and by the provider's async deadline.
@@ -342,7 +351,7 @@ sudo systemctl restart cse-hq-bot.service
 sudo journalctl -u cse-hq-bot.service -n 100 --no-pager
 ```
 
-The Q&A service builds bounded, permission-aware context from CSE-HQ records and, when enabled, the normalized GitHub cache. The prompt instructs Gemini to treat records as untrusted data, state when evidence is insufficient, preserve source IDs, and never claim to modify project or GitHub records.
+The Q&A service builds bounded, permission-aware context from CSE-HQ records and, when enabled, the normalized GitHub cache. The same rendered prompt package is sent to either provider. It instructs the model to treat records as untrusted data, state when evidence is insufficient, preserve source IDs, and never claim to modify project or GitHub records.
 
 If Gemini initialization fails, verify all of the following:
 
@@ -351,6 +360,23 @@ If Gemini initialization fails, verify all of the following:
 - `AI_MODEL` is a model available to the configured Gemini API account.
 - The installed `google-genai` dependency is present in the active virtual environment.
 - The server can make outbound HTTPS requests.
+
+### Optional OpenAI fallback
+
+Gemini remains the primary provider. Enable a single OpenAI fallback attempt with:
+
+```dotenv
+AI_PROVIDER=gemini
+AI_FALLBACK_ENABLED=true
+AI_FALLBACK_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=your_configured_openai_model
+AI_REQUEST_TIMEOUT=20
+```
+
+Fallback is attempted only after a normalized rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
+
+Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, SDK retries are disabled for the OpenAI fallback, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop Gemini startup or successful Gemini requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
 
 ## Configuring GitHub Integration v1
 
@@ -383,7 +409,7 @@ pytest
 - Meaningful task, bug, meeting, decision, and standup mutations append immutable activity records after the primary write succeeds.
 - `ProjectContextService` provides permission-aware, structured project reads for future reporting and grounded retrieval without bypassing domain services.
 - The fake AI provider is the recommended default for development and automated tests.
-- Keep `.env`, Discord tokens, Gemini API keys, and production database backups out of version control.
+- Keep `.env`, Discord tokens, Gemini/OpenAI API keys, and production database backups out of version control.
 
 ## License
 

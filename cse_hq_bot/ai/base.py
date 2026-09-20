@@ -21,6 +21,9 @@ class RetrievedContextRecord:
 @dataclass(frozen=True)
 class AIProviderResponse:
     text: str
+    provider: str | None = None
+    model: str | None = None
+    fallback_used: bool = False
 
 
 class AIProvider(Protocol):

@@ -1,0 +1,114 @@
+import asyncio
+
+from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
+from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
+from cse_hq_bot.errors import (
+    AIConfigurationError,
+    AIMalformedResponseError,
+    AIProviderError,
+    AIProviderUnavailableError,
+    AIRateLimitError,
+    AITimeoutError,
+)
+
+try:
+    import openai
+    from openai import AsyncOpenAI
+except ImportError:  # pragma: no cover
+    openai = None
+    AsyncOpenAI = None
+
+
+class OpenAIProvider:
+    def __init__(self, api_key: str | None, model_name: str | None):
+        if not api_key:
+            raise AIConfigurationError(
+                "OPENAI_API_KEY is required for the OpenAI fallback"
+            )
+        if not model_name:
+            raise AIConfigurationError(
+                "OPENAI_MODEL is required for the OpenAI fallback"
+            )
+        if openai is None or AsyncOpenAI is None:
+            raise AIConfigurationError("openai package is not available")
+        self.model_name = model_name
+        try:
+            self.client = AsyncOpenAI(api_key=api_key, max_retries=0)
+        except Exception as exc:  # pragma: no cover - SDK boundary
+            raise self._normalize_error(exc) from exc
+
+    async def generate(
+        self,
+        *,
+        system_instruction: str,
+        messages: list[AIMessage],
+        context_records: list[RetrievedContextRecord],
+        timeout_seconds: int,
+    ) -> AIProviderResponse:
+        prompt = render_provider_prompt(system_instruction, messages, context_records)
+        try:
+            client = self.client.with_options(timeout=timeout_seconds, max_retries=0)
+            response = await asyncio.wait_for(
+                client.responses.create(
+                    model=self.model_name,
+                    input=prompt,
+                    store=False,
+                ),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise AITimeoutError("OpenAI request timed out") from exc
+        except Exception as exc:  # pragma: no cover - SDK boundary
+            raise self._normalize_error(exc) from exc
+        return AIProviderResponse(
+            text=self._extract_text(response),
+            provider="openai",
+            model=self.model_name,
+        )
+
+    def _extract_text(self, response: object) -> str:
+        if response is None:
+            raise AIMalformedResponseError("OpenAI returned an empty response")
+        try:
+            direct_text = getattr(response, "output_text", None)
+        except Exception:  # noqa: BLE001 - SDK response properties may raise arbitrary errors
+            direct_text = None
+        if isinstance(direct_text, str) and direct_text.strip():
+            return direct_text.strip()
+
+        parts: list[str] = []
+        try:
+            for item in getattr(response, "output", None) or []:
+                for content in getattr(item, "content", None) or []:
+                    text = getattr(content, "text", None)
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+        except Exception:  # noqa: BLE001 - malformed SDK response shapes are normalized
+            parts = []
+        if parts:
+            return "\n".join(parts)
+        raise AIMalformedResponseError("OpenAI returned an empty or malformed response")
+
+    def _normalize_error(self, exc: Exception) -> AIProviderError:
+        name = exc.__class__.__name__.lower()
+        message = str(exc).lower()
+        status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+        code = getattr(exc, "code", None)
+        if status in {401, 403, 404} or any(
+            marker in name
+            for marker in ("authentication", "permissiondenied", "notfound")
+        ):
+            return AIConfigurationError("OpenAI configuration is invalid")
+        if status == 429 or "ratelimit" in name or "rate limit" in message:
+            return AIRateLimitError("OpenAI rate limit exceeded")
+        if "timeout" in name or "timed out" in message:
+            return AITimeoutError("OpenAI request timed out")
+        if (
+            isinstance(status, int)
+            and status >= 500
+            or "apiconnection" in name
+            or "internalserver" in name
+            or code == "server_is_overloaded"
+        ):
+            return AIProviderUnavailableError("OpenAI is temporarily unavailable")
+        return AIProviderError("OpenAI request failed")

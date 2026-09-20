@@ -17,6 +17,10 @@ class Config:
     ai_max_context_items: int
     ai_max_history_messages: int
     ai_request_timeout: int
+    ai_fallback_enabled: bool
+    ai_fallback_provider: str
+    openai_api_key: str | None
+    openai_model: str | None
     github_enabled: bool
     github_repository_owner: str | None
     github_repository_name: str | None
@@ -34,14 +38,23 @@ def load_config() -> Config:
         discord_guild_id=int(guild_id) if guild_id else None,
         database_path=os.getenv("DATABASE_PATH", "./cse_hq.db"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        ai_enable_message_content=os.getenv("AI_ENABLE_MESSAGE_CONTENT", "false").lower() in {"1", "true", "yes", "on"},
+        ai_enable_message_content=os.getenv(
+            "AI_ENABLE_MESSAGE_CONTENT", "false"
+        ).lower()
+        in {"1", "true", "yes", "on"},
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         ai_model=os.getenv("AI_MODEL") or os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
         ai_provider=os.getenv("AI_PROVIDER", "fake").lower(),
         ai_max_context_items=max(1, int(os.getenv("AI_MAX_CONTEXT_ITEMS", "12"))),
         ai_max_history_messages=max(1, int(os.getenv("AI_MAX_HISTORY_MESSAGES", "8"))),
         ai_request_timeout=max(1, int(os.getenv("AI_REQUEST_TIMEOUT", "20"))),
-        github_enabled=os.getenv("GITHUB_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        ai_fallback_enabled=os.getenv("AI_FALLBACK_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
+        ai_fallback_provider=os.getenv("AI_FALLBACK_PROVIDER", "openai").lower(),
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        openai_model=os.getenv("OPENAI_MODEL"),
+        github_enabled=os.getenv("GITHUB_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
         github_repository_owner=os.getenv("GITHUB_REPOSITORY_OWNER"),
         github_repository_name=os.getenv("GITHUB_REPOSITORY_NAME"),
         github_token=os.getenv("GITHUB_TOKEN"),
