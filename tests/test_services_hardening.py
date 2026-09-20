@@ -144,6 +144,8 @@ def test_bug_filter_combinations(services):
 def test_bug_reopen_only_allows_resolved_to_open(services):
     leader = Actor("lead", Role.LEADER)
     bug_id = services["bug"].report_bug(leader, "bug", "desc", 3, assignee_id="lead")
+    with pytest.raises(InvalidTransitionError):
+        services["bug"].reopen_bug(leader, bug_id)
     services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
     services["bug"].resolve_bug(leader, bug_id)
     services["bug"].reopen_bug(leader, bug_id)
