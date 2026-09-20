@@ -37,6 +37,7 @@ class ActivityRepository:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> list[dict]:
         clauses: list[str] = []
         values: list[object] = []
@@ -59,7 +60,7 @@ class ActivityRepository:
             clauses.append("created_at <= ?")
             values.append(end_time)
         where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        values.append(limit)
+        values.extend([limit, max(offset, 0)])
         with self.db.connect() as conn:
             rows = conn.execute(
                 f"""
@@ -68,6 +69,7 @@ class ActivityRepository:
                 {where_clause}
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
+                OFFSET ?
                 """,
                 values,
             ).fetchall()

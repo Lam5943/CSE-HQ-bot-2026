@@ -1,6 +1,6 @@
 from cse_hq_bot.errors import InvalidInputError, NotFoundError, PermissionDeniedError
 from cse_hq_bot.identifiers import bug_code, decision_code, meeting_code, standup_code, task_code
-from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, TaskStatus
+from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, Role, TaskStatus
 from cse_hq_bot.permissions import ensure_can_view_member_context
 from cse_hq_bot.services.activity_service import ActivityService
 from cse_hq_bot.services.bug_service import BugService
@@ -70,7 +70,8 @@ class ProjectContextService:
             for task in self.task_service.list_accessible_tasks(actor)
             if task.get("assignee_id") == subject_id
         ]
-        today = self.standup_service.today_for_actor(actor)
+        subject_actor = actor if subject_id == actor.user_id else Actor(subject_id, Role.MEMBER)
+        today = self.standup_service.today_for_actor(subject_actor)
         standup = next(
             (
                 entry
@@ -90,6 +91,7 @@ class ProjectContextService:
                 task
                 for task in tasks
                 if task.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
+                and task.get("status") != TaskStatus.BLOCKED.value
             ],
             "blocked_tasks": [task for task in tasks if task.get("status") == TaskStatus.BLOCKED.value],
             "current_standup": standup,
@@ -129,10 +131,13 @@ class ProjectContextService:
         return self.decision_service.search_decisions(actor, query)
 
     def get_recent_activity(self, actor: Actor, limit: int = DEFAULT_ACTIVITY_LIMIT) -> list[dict]:
-        return self._filter_accessible_activity(
+        return self._collect_accessible_activity(
             actor,
-            self.activity_service.list_recent_activity(limit=self._expanded_limit(limit)),
-            self._normalize_limit(limit),
+            limit,
+            lambda batch_limit, offset: self.activity_service.list_recent_activity(
+                limit=batch_limit,
+                offset=offset,
+            ),
         )
 
     def get_activity_between(
@@ -143,14 +148,15 @@ class ProjectContextService:
         *,
         limit: int = DEFAULT_ACTIVITY_LIMIT,
     ) -> list[dict]:
-        return self._filter_accessible_activity(
+        return self._collect_accessible_activity(
             actor,
-            self.activity_service.list_activity_between(
+            limit,
+            lambda batch_limit, offset: self.activity_service.list_activity_between(
                 start_time,
                 end_time,
-                limit=self._expanded_limit(limit),
+                limit=batch_limit,
+                offset=offset,
             ),
-            self._normalize_limit(limit),
         )
 
     def search_project_memory(
@@ -198,13 +204,23 @@ class ProjectContextService:
         results.sort(key=lambda item: 0 if item["relevance_hint"].startswith("title") else 1)
         return results[: self._normalize_limit(limit)]
 
-    def _filter_accessible_activity(self, actor: Actor, activities: list[dict], limit: int) -> list[dict]:
+    def _collect_accessible_activity(self, actor: Actor, limit: int, loader) -> list[dict]:
+        target_limit = self._normalize_limit(limit)
+        batch_size = min(max(target_limit, self.DEFAULT_ACTIVITY_LIMIT), ActivityService.MAX_LIMIT)
         visible: list[dict] = []
-        for activity in activities:
-            if self._can_access_activity(actor, activity):
-                visible.append(activity)
-            if len(visible) >= limit:
+        offset = 0
+        while len(visible) < target_limit:
+            batch = loader(batch_size, offset)
+            if not batch:
                 break
+            for activity in batch:
+                if self._can_access_activity(actor, activity):
+                    visible.append(activity)
+                    if len(visible) >= target_limit:
+                        break
+            if len(batch) < batch_size:
+                break
+            offset += len(batch)
         return visible
 
     def _can_access_activity(self, actor: Actor, activity: dict) -> bool:
@@ -231,9 +247,6 @@ class ProjectContextService:
 
     def _normalize_limit(self, limit: int) -> int:
         return max(1, min(int(limit), self.MAX_LIMIT))
-
-    def _expanded_limit(self, limit: int) -> int:
-        return min(self._normalize_limit(limit) * 5, ActivityService.MAX_LIMIT)
 
     def _task_search_result(self, task: dict, needle: str) -> dict:
         return self._search_result(

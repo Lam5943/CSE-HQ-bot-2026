@@ -18,6 +18,7 @@ class ActivityService:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int = DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> list[dict]:
         return self.repo.list(
             entity_type=entity_type,
@@ -27,6 +28,7 @@ class ActivityService:
             start_time=start_time,
             end_time=end_time,
             limit=self._normalize_limit(limit),
+            offset=max(int(offset), 0),
         )
 
     def list_entity_activity(
@@ -38,6 +40,7 @@ class ActivityService:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int = DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> list[dict]:
         return self.list_recent_activity(
             entity_type=entity_type,
@@ -46,6 +49,7 @@ class ActivityService:
             start_time=start_time,
             end_time=end_time,
             limit=limit,
+            offset=offset,
         )
 
     def list_actor_activity(
@@ -57,6 +61,7 @@ class ActivityService:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int = DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> list[dict]:
         return self.list_recent_activity(
             actor_id=actor_id,
@@ -65,6 +70,7 @@ class ActivityService:
             start_time=start_time,
             end_time=end_time,
             limit=limit,
+            offset=offset,
         )
 
     def list_activity_between(
@@ -77,6 +83,7 @@ class ActivityService:
         actor_id: str | None = None,
         event_type: str | None = None,
         limit: int = DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> list[dict]:
         return self.list_recent_activity(
             entity_type=entity_type,
@@ -86,6 +93,7 @@ class ActivityService:
             start_time=start_time,
             end_time=end_time,
             limit=limit,
+            offset=offset,
         )
 
     def _normalize_limit(self, limit: int) -> int:
