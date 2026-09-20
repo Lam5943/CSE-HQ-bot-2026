@@ -138,6 +138,7 @@ class CSEHQBot(commands.Bot):
                     decision_service=self.container.decision_service,
                     task_service=self.container.task_service,
                 )
+                view.meeting_select.sync_options(meetings_data)
                 await interaction.response.send_message(
                     embed=build_meetings_embed(meetings_data, mode_label="Upcoming"),
                     view=view,

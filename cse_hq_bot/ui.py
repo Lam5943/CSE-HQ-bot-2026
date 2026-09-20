@@ -2031,6 +2031,9 @@ class MeetingsView(OwnedView):
         except NotFoundError as error:
             logger.exception("Meeting start failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting start failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this meeting right now.", ephemeral=True)
 
     @discord.ui.button(label="Complete", style=discord.ButtonStyle.success, row=3)
     async def complete_meeting(  # type: ignore[override]
@@ -2053,6 +2056,9 @@ class MeetingsView(OwnedView):
         except NotFoundError as error:
             logger.exception("Meeting complete failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting complete failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this meeting right now.", ephemeral=True)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=3)
     async def cancel_meeting(  # type: ignore[override]
@@ -2075,6 +2081,9 @@ class MeetingsView(OwnedView):
         except NotFoundError as error:
             logger.exception("Meeting cancel failed", exc_info=error)
             await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting cancel failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this meeting right now.", ephemeral=True)
 
     @discord.ui.button(label="Add Note", style=discord.ButtonStyle.primary, row=3)
     async def add_note(  # type: ignore[override]

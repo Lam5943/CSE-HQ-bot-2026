@@ -29,10 +29,11 @@ class CollaborationService:
         )
 
     def record_decision(self, actor, summary: str, meeting_id: int | None = None) -> int:
+        clean_summary = summary.strip()
         return self.decision_service.create_decision(
             actor,
-            title=summary[:120],
-            decision=summary,
+            title=clean_summary[:120],
+            decision=clean_summary,
             context="",
             rationale="",
             alternatives="",

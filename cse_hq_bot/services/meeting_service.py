@@ -103,6 +103,8 @@ class MeetingService:
         self.repo.update_meeting(meeting_id, update_fields)
 
     def _ensure_can_add_note(self, actor: Actor, meeting_id: int, meeting: dict) -> None:
+        if meeting.get("status") not in {MeetingStatus.SCHEDULED.value, MeetingStatus.IN_PROGRESS.value}:
+            raise InvalidTransitionError("This meeting can no longer accept notes")
         if actor.role in {Role.LEADER, Role.CO_LEAD}:
             return
         participants = self.repo.list_meeting_participants(meeting_id)
