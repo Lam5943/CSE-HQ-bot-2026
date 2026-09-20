@@ -11,10 +11,16 @@ from cse_hq_bot.logging_config import configure_logging
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.ui import (
     BugsView,
+    DecisionsView,
     DashboardView,
+    MeetingsView,
+    StandupView,
     TasksView,
     build_bugs_embed,
+    build_decisions_embed,
     build_dashboard_embed,
+    build_meetings_embed,
+    build_standup_embed,
     build_tasks_embed,
 )
 
@@ -119,10 +125,83 @@ class CSEHQBot(commands.Bot):
             report = self.container.report_service.weekly_progress_report()
             await interaction.response.send_message(report, ephemeral=True)
 
+        @app_commands.command(name="meetings", description="Open meetings panel")
+        async def meetings(interaction: discord.Interaction) -> None:
+            try:
+                actor = resolve_actor_from_interaction(interaction)
+                meetings_data = self.container.meeting_service.list_meetings(actor, status="scheduled")
+                view = MeetingsView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    meeting_service=self.container.meeting_service,
+                    decision_service=self.container.decision_service,
+                    task_service=self.container.task_service,
+                )
+                view.meeting_select.sync_options(meetings_data)
+                await interaction.response.send_message(
+                    embed=build_meetings_embed(meetings_data, mode_label="Upcoming"),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Meetings command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load meetings right now.", ephemeral=True
+                )
+
+        @app_commands.command(name="decisions", description="Open decisions panel")
+        async def decisions(interaction: discord.Interaction) -> None:
+            try:
+                actor = resolve_actor_from_interaction(interaction)
+                decisions_data = self.container.decision_service.list_decisions(actor)
+                view = DecisionsView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    decision_service=self.container.decision_service,
+                )
+                await interaction.response.send_message(
+                    embed=build_decisions_embed(decisions_data),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Decisions command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load decisions right now.", ephemeral=True
+                )
+
+        @app_commands.command(name="standup", description="Open standup panel")
+        async def standup(interaction: discord.Interaction) -> None:
+            try:
+                actor = resolve_actor_from_interaction(interaction)
+                today_entry = self.container.standup_service.get_today(actor)
+                entries = self.container.standup_service.list_for_date(
+                    actor,
+                    today_entry["date"] if today_entry else self.container.standup_service.today_for_actor(actor),
+                )
+                view = StandupView(
+                    owner_id=interaction.user.id,
+                    actor_resolver=resolve_actor_from_interaction,
+                    standup_service=self.container.standup_service,
+                )
+                await interaction.response.send_message(
+                    embed=build_standup_embed(today_entry, entries),
+                    view=view,
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("Standup command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to load standups right now.", ephemeral=True
+                )
+
         self.tree.add_command(dashboard)
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
         self.tree.add_command(weekly_report)
+        self.tree.add_command(meetings)
+        self.tree.add_command(decisions)
+        self.tree.add_command(standup)
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:  # pragma: no cover
         logger.exception("Unhandled command error", exc_info=error)

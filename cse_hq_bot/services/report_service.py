@@ -1,6 +1,6 @@
 from cse_hq_bot.services.bug_service import BugService
-from cse_hq_bot.services.collab_service import CollaborationService
 from cse_hq_bot.services.project_service import ProjectService
+from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
 
 
@@ -10,16 +10,16 @@ class ReportService:
         project_service: ProjectService,
         task_service: TaskService,
         bug_service: BugService,
-        collab_service: CollaborationService,
+        standup_service: StandupService,
     ):
         self.project_service = project_service
         self.task_service = task_service
         self.bug_service = bug_service
-        self.collab_service = collab_service
+        self.standup_service = standup_service
 
     def weekly_progress_report(self) -> str:
         dashboard = self.project_service.get_dashboard()
-        standups = self.collab_service.weekly_standup_summary()
+        standups = self.standup_service.weekly_standup_summary()
         return (
             f"Weekly Report for {dashboard.name}\n"
             f"Tasks: {dashboard.task_done}/{dashboard.task_total} completed\n"

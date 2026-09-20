@@ -35,6 +35,7 @@ class TaskService:
         priority: int,
         assignee_id: str | None = None,
         deadline: str | None = None,
+        source_meeting_id: int | None = None,
     ) -> int:
         return self.repo.create(
             title=title,
@@ -43,6 +44,7 @@ class TaskService:
             created_by=actor.user_id,
             assignee_id=assignee_id,
             deadline=deadline,
+            source_meeting_id=source_meeting_id,
         )
 
     def list_tasks(self) -> list[dict]:

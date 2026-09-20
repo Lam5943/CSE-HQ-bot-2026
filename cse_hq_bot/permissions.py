@@ -27,3 +27,11 @@ def ensure_can_modify_bug(actor: Actor, assignee_id: str | None, created_by: str
     if actor.user_id in {assignee_id, created_by}:
         return
     raise PermissionDeniedError("Members may only modify bugs they created or are assigned to")
+
+
+def ensure_can_manage_meetings(actor: Actor) -> None:
+    ensure_can_manage_project(actor)
+
+
+def ensure_can_manage_decisions(actor: Actor) -> None:
+    ensure_can_manage_project(actor)

@@ -97,6 +97,23 @@ def test_assignment_permissions_and_missing_targets(services):
         services["bug"].assign_bug(leader, 999, "a")
 
 
+def test_task_create_supports_optional_source_meeting_id(services):
+    leader = Actor("lead", Role.LEADER)
+    task_id = services["task"].create_task(
+        leader,
+        "Action item",
+        "Created from meeting",
+        3,
+        source_meeting_id=42,
+    )
+    task = services["task"].get_task(leader, task_id)
+    assert task["source_meeting_id"] == 42
+
+    unrelated_task_id = services["task"].create_task(leader, "Regular task", "No meeting", 2)
+    unrelated_task = services["task"].get_task(leader, unrelated_task_id)
+    assert unrelated_task["source_meeting_id"] is None
+
+
 def test_task_filter_combinations(services):
     leader = Actor("lead", Role.LEADER)
     services["task"].create_task(

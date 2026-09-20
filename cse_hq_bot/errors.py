@@ -14,5 +14,9 @@ class InvalidTransitionError(CSEHQError):
     """Raised when a workflow status transition is invalid."""
 
 
+class InvalidInputError(CSEHQError):
+    """Raised when a request contains invalid domain input."""
+
+
 class AIProviderError(CSEHQError):
     """Raised when AI provider operations fail."""
