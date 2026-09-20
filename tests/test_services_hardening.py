@@ -45,6 +45,10 @@ def test_task_invalid_transition_rejected(services):
     task_id = services["task"].create_task(member, "task", "desc", 2, assignee_id="a")
     with pytest.raises(InvalidTransitionError):
         services["task"].complete_task(member, task_id)
+    services["task"].start_task(member, task_id)
+    services["task"].block_task(member, task_id)
+    with pytest.raises(InvalidTransitionError):
+        services["task"].complete_task(member, task_id)
 
 
 def test_bug_transitions_valid_invalid_unauthorized_and_missing(services):
@@ -135,3 +139,12 @@ def test_bug_filter_combinations(services):
     assert len(
         services["bug"].filter_bugs(leader, status=BugStatus.TRIAGED.value, assignee_id="b")
     ) == 1
+
+
+def test_bug_reopen_only_allows_resolved_to_open(services):
+    leader = Actor("lead", Role.LEADER)
+    bug_id = services["bug"].report_bug(leader, "bug", "desc", 3, assignee_id="lead")
+    services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
+    services["bug"].resolve_bug(leader, bug_id)
+    with pytest.raises(InvalidTransitionError):
+        services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
