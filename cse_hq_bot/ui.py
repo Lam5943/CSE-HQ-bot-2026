@@ -1792,6 +1792,7 @@ class StandupSubmitModal(discord.ui.Modal, title="Submit Standup"):
             label="Previous",
             style=discord.TextStyle.paragraph,
             default=existing.get("previous", "") if existing else "",
+            required=False,
             max_length=1024,
         )
         self.current_input = discord.ui.TextInput(
@@ -1948,9 +1949,14 @@ class MeetingsView(OwnedView):
                 embed.add_field(name="Info", value=notice, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
         except NotFoundError:
+            meetings = self._load_meetings(actor)
+            self.page, _, _, _ = _pagination_state(len(meetings), self.page)
+            self.meeting_select.sync_options(meetings)
             self.selected_meeting_id = None
             self._sync_detail_buttons()
-            await self.render_list(interaction, notice="Selected meeting no longer exists.")
+            embed = build_meetings_embed(meetings, page=self.page, mode_label=self.mode.title())
+            embed.add_field(name="Info", value="Selected meeting no longer exists.", inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
         except CSEHQError as error:
             logger.exception("Meeting detail load failed", exc_info=error)
             await interaction.response.send_message("Unable to load meeting details now. Please refresh and try again.", ephemeral=True)
@@ -2205,10 +2211,17 @@ class DecisionsView(OwnedView):
                 embed.add_field(name="Info", value=notice, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
         except NotFoundError:
+            decisions = self._load_decisions(actor)
+            self.page, _, _, _ = _pagination_state(len(decisions), self.page)
+            self.decision_select.sync_options(decisions)
             self.selected_decision_id = None
             self.edit_decision.disabled = True
             self.back_to_list.disabled = True
-            await self.render_list(interaction, notice="Selected decision no longer exists.")
+            embed = build_decisions_embed(
+                decisions, page=self.page, mode_label="Search" if self.query else "Browse"
+            )
+            embed.add_field(name="Info", value="Selected decision no longer exists.", inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
         except CSEHQError as error:
             logger.exception("Decision detail load failed", exc_info=error)
             await interaction.response.send_message("Unable to load decision details now. Please refresh and try again.", ephemeral=True)

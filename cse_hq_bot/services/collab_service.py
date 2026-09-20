@@ -1,5 +1,6 @@
 from datetime import date
 
+from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.meeting_service import MeetingService
@@ -30,6 +31,8 @@ class CollaborationService:
 
     def record_decision(self, actor, summary: str, meeting_id: int | None = None) -> int:
         clean_summary = summary.strip()
+        if not clean_summary:
+            raise InvalidInputError("Decision text is required")
         return self.decision_service.create_decision(
             actor,
             title=clean_summary[:120],
