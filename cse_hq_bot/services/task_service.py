@@ -134,11 +134,7 @@ class TaskService:
         self.update_task(actor, task_id, assignee_id=assignee_id)
 
     def transition_status(self, actor: Actor, task_id: int, status: str) -> None:
-        task = self.repo.get(task_id)
-        target_status = TaskStatus(status).value
-        self._ensure_transition(task["status"], target_status)
-        ensure_can_modify_task(actor, task.get("assignee_id"), task["created_by"])
-        self.repo.update(task_id, {"status": target_status})
+        self.update_task(actor, task_id, status=TaskStatus(status).value)
 
     def start_task(self, actor: Actor, task_id: int) -> None:
         self.transition_status(actor, task_id, TaskStatus.IN_PROGRESS.value)

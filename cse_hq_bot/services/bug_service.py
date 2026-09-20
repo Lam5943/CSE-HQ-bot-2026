@@ -131,11 +131,7 @@ class BugService:
         self.update_bug(actor, bug_id, assignee_id=assignee_id)
 
     def transition_status(self, actor: Actor, bug_id: int, status: str) -> None:
-        bug = self.repo.get(bug_id)
-        target_status = BugStatus(status).value
-        self._ensure_transition(bug["status"], target_status)
-        ensure_can_modify_bug(actor, bug.get("assignee_id"), bug["created_by"])
-        self.repo.update(bug_id, {"status": target_status})
+        self.update_bug(actor, bug_id, status=BugStatus(status).value)
 
     def resolve_bug(self, actor: Actor, bug_id: int) -> None:
         self.transition_status(actor, bug_id, BugStatus.RESOLVED.value)
