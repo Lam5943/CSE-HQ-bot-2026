@@ -1945,7 +1945,9 @@ class MeetingsView(OwnedView):
                 embed.add_field(name="Info", value=notice, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
         except NotFoundError:
-            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+            self.selected_meeting_id = None
+            self._sync_detail_buttons()
+            await self.render_list(interaction, notice="Selected meeting no longer exists.")
         except CSEHQError as error:
             logger.exception("Meeting detail load failed", exc_info=error)
             await interaction.response.send_message("Unable to load meeting details now. Please refresh and try again.", ephemeral=True)
@@ -2191,7 +2193,10 @@ class DecisionsView(OwnedView):
                 embed.add_field(name="Info", value=notice, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
         except NotFoundError:
-            await interaction.response.send_message(STALE_DECISION_MESSAGE, ephemeral=True)
+            self.selected_decision_id = None
+            self.edit_decision.disabled = True
+            self.back_to_list.disabled = True
+            await self.render_list(interaction, notice="Selected decision no longer exists.")
         except CSEHQError as error:
             logger.exception("Decision detail load failed", exc_info=error)
             await interaction.response.send_message("Unable to load decision details now. Please refresh and try again.", ephemeral=True)

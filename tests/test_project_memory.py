@@ -263,6 +263,7 @@ def test_database_initialize_migrates_existing_collaboration_schema(tmp_path: Pa
     assert decision["decision"] == "Legacy decision"
     assert standup["user_id"] == "member"
     assert standup["date"] == "2026-09-20"
+    assert standup["previous"] == ""
     assert "source_meeting_id" in task_columns
 
 

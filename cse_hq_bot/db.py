@@ -205,7 +205,7 @@ class Database:
             SET
                 user_id = COALESCE(NULLIF(user_id, ''), member_id),
                 date = COALESCE(date, substr(created_at, 1, 10), date('now')),
-                previous = COALESCE(NULLIF(previous, ''), update_text, ''),
+                previous = COALESCE(NULLIF(previous, ''), ''),
                 current = COALESCE(NULLIF(current, ''), update_text, ''),
                 blockers = COALESCE(blockers, ''),
                 updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
