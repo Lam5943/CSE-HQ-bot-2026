@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cse_hq_bot.ai.action_models import KnownMember
 from cse_hq_bot.config import load_config
 from cse_hq_bot.errors import (
     AIConfigurationError,
@@ -22,6 +23,7 @@ from cse_hq_bot.factory import ServiceContainer
 from cse_hq_bot.logging_config import configure_logging
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.ui import (
+    AIActionConfirmationView,
     BugsView,
     DashboardView,
     DecisionsView,
@@ -29,6 +31,7 @@ from cse_hq_bot.ui import (
     MeetingsView,
     StandupView,
     TasksView,
+    build_ai_action_embed,
     build_ai_home_embed,
     build_ai_session_intro_embed,
     build_ai_sessions_embed,
@@ -278,6 +281,7 @@ class CSEHQBot(commands.Bot):
         if not message.content.strip():
             return
         actor = resolve_actor_from_user(message.author)
+        known_members = known_members_from_message(message)
         started = time.monotonic()
         try:
             typing = getattr(message.channel, "typing", None)
@@ -288,6 +292,7 @@ class CSEHQBot(commands.Bot):
                         session_id=int(session["id"]),
                         discord_thread_id=str(message.channel.id),
                         content=message.content,
+                        known_members=known_members,
                     )
             else:
                 answer = await self.container.ai_session_service.handle_message(
@@ -295,9 +300,26 @@ class CSEHQBot(commands.Bot):
                     session_id=int(session["id"]),
                     discord_thread_id=str(message.channel.id),
                     content=message.content,
+                    known_members=known_members,
                 )
-            for chunk in split_ai_response(answer.content):
-                await message.channel.send(chunk)
+            if answer.action_proposal is not None:
+                view = AIActionConfirmationView(
+                    owner_id=message.author.id,
+                    proposal_id=answer.action_proposal.id,
+                    action_service=self.container.ai_action_service,
+                    actor_resolver=resolve_actor_from_interaction,
+                    timeout=max(
+                        60,
+                        self.container.ai_action_service.expiration_seconds,
+                    ),
+                )
+                await message.channel.send(
+                    embed=build_ai_action_embed(answer.action_proposal),
+                    view=view,
+                )
+            else:
+                for chunk in split_ai_response(answer.content):
+                    await message.channel.send(chunk)
             logger.info(
                 "AI session response completed",
                 extra={
@@ -431,6 +453,29 @@ def resolve_actor_from_user(user: discord.abc.User) -> Actor:
         elif {"co-lead", "co lead", "co_lead"} & role_names:
             role_name = "co-lead"
     return resolve_actor(user.id, role_name)
+
+
+def known_members_from_message(message: discord.Message) -> list[KnownMember]:
+    candidates = [message.author]
+    candidates.extend(getattr(message, "mentions", []) or [])
+    guild = getattr(message, "guild", None)
+    if guild is not None:
+        candidates.extend(getattr(guild, "members", []) or [])
+    members: dict[str, KnownMember] = {}
+    for user in candidates:
+        if getattr(user, "bot", False):
+            continue
+        user_id = str(user.id)
+        members[user_id] = KnownMember(
+            user_id=user_id,
+            display_name=str(
+                getattr(user, "display_name", None)
+                or getattr(user, "name", None)
+                or user_id
+            ),
+            username=str(getattr(user, "name", "") or "") or None,
+        )
+    return list(members.values())
 
 
 def resolve_actor_from_interaction(interaction: discord.Interaction) -> Actor:

@@ -21,6 +21,7 @@ class Config:
     ai_fallback_provider: str
     openai_api_key: str | None
     openai_model: str | None
+    ai_action_expiration_seconds: int
     github_enabled: bool
     github_repository_owner: str | None
     github_repository_name: str | None
@@ -53,6 +54,9 @@ def load_config() -> Config:
         ai_fallback_provider=os.getenv("AI_FALLBACK_PROVIDER", "openai").lower(),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL"),
+        ai_action_expiration_seconds=max(
+            60, int(os.getenv("AI_ACTION_EXPIRATION_SECONDS", "600"))
+        ),
         github_enabled=os.getenv("GITHUB_ENABLED", "false").lower()
         in {"1", "true", "yes", "on"},
         github_repository_owner=os.getenv("GITHUB_REPOSITORY_OWNER"),

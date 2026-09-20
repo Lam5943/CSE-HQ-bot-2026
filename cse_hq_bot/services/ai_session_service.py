@@ -1,5 +1,7 @@
 import asyncio
+from dataclasses import replace
 
+from cse_hq_bot.ai.action_models import KnownMember
 from cse_hq_bot.errors import (
     AISessionBusyError,
     AISessionClosedError,
@@ -8,6 +10,7 @@ from cse_hq_bot.errors import (
 )
 from cse_hq_bot.models import Actor
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
+from cse_hq_bot.services.ai_action_service import AIActionService
 from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
 
 
@@ -18,10 +21,12 @@ class AISessionService:
         ai_service: AIService,
         *,
         max_history_messages: int,
+        action_service: AIActionService | None = None,
     ):
         self.repo = repo
         self.ai_service = ai_service
         self.max_history_messages = max(1, int(max_history_messages))
+        self.action_service = action_service
         self._busy_sessions: set[int] = set()
         self._busy_state_lock = asyncio.Lock()
 
@@ -42,6 +47,8 @@ class AISessionService:
         if session["status"] != "ACTIVE":
             return
         self.repo.close_session(session_id)
+        if self.action_service is not None:
+            self.action_service.invalidate_session(session_id)
 
     def get_session_by_thread_id(self, discord_thread_id: str) -> dict | None:
         return self.repo.get_session_by_thread_id(discord_thread_id)
@@ -58,6 +65,7 @@ class AISessionService:
         session_id: int,
         discord_thread_id: str,
         content: str,
+        known_members: list[KnownMember] | None = None,
     ) -> GroundedAnswer:
         session = self.repo.get_session(session_id)
         self._validate_session_access(actor, session, discord_thread_id)
@@ -67,12 +75,25 @@ class AISessionService:
             self._busy_sessions.add(session_id)
         try:
             history = self.repo.list_messages(session_id, self.max_history_messages)
-            self.repo.create_message(session_id, "user", content)
-            answer = await self.ai_service.answer_question(
-                actor=actor,
-                question=content,
-                history_messages=history,
-            )
+            source_message_id = self.repo.create_message(session_id, "user", content)
+            answer_kwargs = {
+                "actor": actor,
+                "question": content,
+                "history_messages": history,
+            }
+            if known_members is not None:
+                answer_kwargs["known_members"] = known_members
+            answer = await self.ai_service.answer_question(**answer_kwargs)
+            if answer.action_draft is not None:
+                if self.action_service is None:
+                    raise RuntimeError("AI action service is not configured")
+                proposal = self.action_service.create_proposal(
+                    actor=actor,
+                    session_id=session_id,
+                    source_message_id=source_message_id,
+                    draft=answer.action_draft,
+                )
+                answer = replace(answer, action_proposal=proposal)
             self.repo.create_message(session_id, "assistant", answer.content, answer.source_refs)
             return answer
         finally:

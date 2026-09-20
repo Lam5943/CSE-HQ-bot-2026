@@ -1,8 +1,19 @@
 import re
 from dataclasses import dataclass
 
+from cse_hq_bot.ai.action_models import (
+    ActionIntentKind,
+    ActionProposal,
+    ActionProposalDraft,
+    KnownMember,
+)
 from cse_hq_bot.ai.base import AIProvider, RetrievedContextRecord
-from cse_hq_bot.errors import NotFoundError, PermissionDeniedError
+from cse_hq_bot.errors import (
+    AIActionError,
+    InvalidTransitionError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.identifiers import (
     bug_code,
     decision_code,
@@ -11,6 +22,10 @@ from cse_hq_bot.identifiers import (
     task_code,
 )
 from cse_hq_bot.models import Actor
+from cse_hq_bot.services.ai_action_interpreter import (
+    ActionIntentDetector,
+    AIActionInterpreter,
+)
 from cse_hq_bot.services.project_context_service import ProjectContextService
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlan, RetrievalPlanner
@@ -18,32 +33,14 @@ from cse_hq_bot.services.retrieval_planner import RetrievalPlan, RetrievalPlanne
 SOURCE_ID_PATTERN = re.compile(
     r"\b(?:(?:TASK|BUG|MEETING|DEC|STANDUP)-\d+|GH-(?:ISSUE|PR)-\d+|GH-COMMIT-[0-9a-fA-F]{7,40})\b"
 )
-MUTATION_PATTERN = re.compile(
-    r"\b(?:complete|assign|update|change|create|delete|edit|resolve|close|reopen|start|block|record|submit|schedule|cancel)\b",
-    re.IGNORECASE,
-)
-PROJECT_MUTATION_TARGET_PATTERN = re.compile(
-    r"\b(?:task|bug|meeting|decision|standup|project)\b",
-    re.IGNORECASE,
-)
-INFORMATIONAL_REQUEST_PATTERN = re.compile(
-    r"^\s*(?:"
-    r"how\s+(?:do|can|should|would)\s+(?:i|we|you)\b|"
-    r"how\s+to\b|"
-    r"what\s+(?:would|will|happens?)\b|"
-    r"who\b|why\b|when\b|where\b|"
-    r"explain\b"
-    r")",
-    re.IGNORECASE,
-)
-
-
 @dataclass(frozen=True)
 class GroundedAnswer:
     content: str
     source_refs: list[str]
     invalid_source_refs: list[str]
     retrieval_strategy: str
+    action_draft: ActionProposalDraft | None = None
+    action_proposal: ActionProposal | None = None
 
 
 class AIService:
@@ -56,6 +53,8 @@ class AIService:
         *,
         max_context_items: int,
         request_timeout: int,
+        action_interpreter: AIActionInterpreter | None = None,
+        action_intent_detector: ActionIntentDetector | None = None,
     ):
         self.provider = provider
         self.project_context_service = project_context_service
@@ -63,6 +62,8 @@ class AIService:
         self.prompt_builder = prompt_builder
         self.max_context_items = max(1, int(max_context_items))
         self.request_timeout = max(1, int(request_timeout))
+        self.action_interpreter = action_interpreter
+        self.action_intent_detector = action_intent_detector or ActionIntentDetector()
 
     async def answer_question(
         self,
@@ -70,16 +71,59 @@ class AIService:
         actor: Actor,
         question: str,
         history_messages: list[dict],
+        known_members: list[KnownMember] | None = None,
     ) -> GroundedAnswer:
-        if self._is_mutation_request(question):
+        intent = self.action_intent_detector.detect(question)
+        if intent.kind != ActionIntentKind.NONE and self.action_interpreter is None:
             return GroundedAnswer(
                 content=(
-                    "AI project mutations are unavailable in CSE-HQ v1. "
-                    "I can help explain the current project state, but I cannot change tasks, bugs, meetings, decisions, or standups."
+                    "AI project mutations are unavailable in this configuration. "
+                    "I can still answer questions about the current project state."
                 ),
                 source_refs=[],
                 invalid_source_refs=[],
                 retrieval_strategy="mutation_rejected",
+            )
+        if intent.kind in {ActionIntentKind.UNSUPPORTED, ActionIntentKind.MULTI_ACTION}:
+            return GroundedAnswer(
+                content=intent.message or "That project action is not supported.",
+                source_refs=[],
+                invalid_source_refs=[],
+                retrieval_strategy="action_unsupported",
+            )
+        if intent.kind == ActionIntentKind.SUPPORTED:
+            if intent.action_type is None:  # pragma: no cover - detector invariant
+                raise RuntimeError("Supported action intent has no action type")
+            try:
+                draft = await self.action_interpreter.interpret(
+                    actor=actor,
+                    question=question,
+                    action_type=intent.action_type,
+                    history_messages=history_messages,
+                    known_members=known_members or [],
+                )
+            except (
+                AIActionError,
+                InvalidTransitionError,
+                NotFoundError,
+                PermissionDeniedError,
+            ) as error:
+                return GroundedAnswer(
+                    content=str(error),
+                    source_refs=[],
+                    invalid_source_refs=[],
+                    retrieval_strategy="action_validation",
+                )
+            return GroundedAnswer(
+                content=(
+                    f"🤖 Proposed Action\n\n{draft.summary}\n\n"
+                    "Review the details and use Confirm or Cancel. "
+                    "No project data has changed yet."
+                ),
+                source_refs=[],
+                invalid_source_refs=[],
+                retrieval_strategy="action_proposal",
+                action_draft=draft,
             )
         plan = self.retrieval_planner.plan(question)
         context_records = self._retrieve_records(actor, plan)
@@ -101,11 +145,6 @@ class AIService:
             invalid_source_refs=invalid,
             retrieval_strategy=plan.strategy,
         )
-
-    def _is_mutation_request(self, question: str) -> bool:
-        if INFORMATIONAL_REQUEST_PATTERN.search(question):
-            return False
-        return bool(MUTATION_PATTERN.search(question) and PROJECT_MUTATION_TARGET_PATTERN.search(question))
 
     def _retrieve_records(self, actor: Actor, plan: RetrievalPlan) -> list[RetrievedContextRecord]:
         strategy = plan.strategy
