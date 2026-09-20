@@ -4,6 +4,7 @@ from datetime import date
 from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.identifiers import standup_code
 from cse_hq_bot.models import Actor
+from cse_hq_bot.permissions import ensure_can_view_standup
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 
@@ -78,7 +79,9 @@ class StandupService:
         return self._normalize_date(value or self.today_for_actor(actor))
 
     def get_standup(self, actor: Actor, standup_id: int) -> dict:
-        return self.repo.get_standup(standup_id)
+        standup = self.repo.get_standup(standup_id)
+        ensure_can_view_standup(actor, standup["user_id"])
+        return standup
 
     def search_standups(self, actor: Actor, query: str, *, days: int = 30) -> list[dict]:
         needle = self._require_text(query, "Search text is required").lower()

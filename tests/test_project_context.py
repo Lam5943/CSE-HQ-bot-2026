@@ -239,9 +239,11 @@ def test_project_context_permissions_recent_activity_search_and_empty_state(serv
 
     with pytest.raises(PermissionDeniedError):
         services["task"].get_task(outsider, task_id)
+    with pytest.raises(PermissionDeniedError):
+        services["context"].get_current_work(outsider, user_id="owner")
 
     outsider_recent = services["context"].get_recent_activity(outsider, limit=10)
-    assert all(entry["entity_type"] != "task" for entry in outsider_recent)
+    assert all(entry["entity_type"] not in {"task", "standup"} for entry in outsider_recent)
     owner_recent = services["context"].get_recent_activity(owner, limit=10)
     assert any(entry["entity_type"] == "task" for entry in owner_recent)
 

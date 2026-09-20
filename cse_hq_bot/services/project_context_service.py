@@ -1,6 +1,7 @@
 from cse_hq_bot.errors import InvalidInputError, NotFoundError, PermissionDeniedError
 from cse_hq_bot.identifiers import bug_code, decision_code, meeting_code, standup_code, task_code
 from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, TaskStatus
+from cse_hq_bot.permissions import ensure_can_view_member_context
 from cse_hq_bot.services.activity_service import ActivityService
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.decision_service import DecisionService
@@ -63,6 +64,7 @@ class ProjectContextService:
 
     def get_current_work(self, actor: Actor, user_id: str | None = None) -> dict:
         subject_id = (user_id or actor.user_id).strip()
+        ensure_can_view_member_context(actor, subject_id)
         tasks = [
             task
             for task in self.task_service.list_accessible_tasks(actor)
