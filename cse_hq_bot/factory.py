@@ -1,0 +1,43 @@
+from cse_hq_bot.ai.fake_provider import FakeAIProvider
+from cse_hq_bot.ai.gemini_provider import GeminiAIProvider
+from cse_hq_bot.config import Config
+from cse_hq_bot.db import Database
+from cse_hq_bot.repositories.bug_repository import BugRepository
+from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+from cse_hq_bot.repositories.project_repository import ProjectRepository
+from cse_hq_bot.repositories.task_repository import TaskRepository
+from cse_hq_bot.services.bug_service import BugService
+from cse_hq_bot.services.collab_service import CollaborationService
+from cse_hq_bot.services.project_service import ProjectService
+from cse_hq_bot.services.qa_service import QAService
+from cse_hq_bot.services.report_service import ReportService
+from cse_hq_bot.services.task_service import TaskService
+
+
+class ServiceContainer:
+    def __init__(self, config: Config):
+        db = Database(config.database_path)
+        db.initialize()
+
+        project_repo = ProjectRepository(db)
+        task_repo = TaskRepository(db)
+        bug_repo = BugRepository(db)
+        collab_repo = CollaborationRepository(db)
+
+        self.project_service = ProjectService(project_repo)
+        self.task_service = TaskService(task_repo)
+        self.bug_service = BugService(bug_repo)
+        self.collab_service = CollaborationService(collab_repo)
+        self.report_service = ReportService(
+            self.project_service,
+            self.task_service,
+            self.bug_service,
+            self.collab_service,
+        )
+
+        provider = (
+            GeminiAIProvider(config.gemini_api_key, config.gemini_model)
+            if config.ai_provider == "gemini"
+            else FakeAIProvider()
+        )
+        self.qa_service = QAService(provider, project_repo, task_repo, bug_repo)
