@@ -1,11 +1,22 @@
 import logging
+import time
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from cse_hq_bot.config import load_config
-from cse_hq_bot.errors import CSEHQError
+from cse_hq_bot.errors import (
+    AIConfigurationError,
+    AIProviderError,
+    AIRateLimitError,
+    AISessionBusyError,
+    AISessionClosedError,
+    AITimeoutError,
+    CSEHQError,
+    InvalidInputError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.factory import ServiceContainer
 from cse_hq_bot.logging_config import configure_logging
 from cse_hq_bot.models import Actor, Role
@@ -16,12 +27,16 @@ from cse_hq_bot.ui import (
     MeetingsView,
     StandupView,
     TasksView,
+    build_ai_home_embed,
+    build_ai_session_intro_embed,
+    build_ai_sessions_embed,
     build_bugs_embed,
     build_decisions_embed,
     build_dashboard_embed,
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
+    split_ai_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,8 +50,11 @@ ROLE_MAP = {
 
 
 class CSEHQBot(commands.Bot):
-    def __init__(self, container: ServiceContainer):
+    def __init__(self, container: ServiceContainer, *, enable_message_content: bool = False):
         intents = discord.Intents.default()
+        intents.message_content = enable_message_content
+        intents.guild_messages = True
+        intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
         self.container = container
 
@@ -195,6 +213,20 @@ class CSEHQBot(commands.Bot):
                     "Unable to load standups right now.", ephemeral=True
                 )
 
+        @app_commands.command(name="ai", description="Open the private AI assistant panel")
+        async def ai(interaction: discord.Interaction) -> None:
+            try:
+                await interaction.response.send_message(
+                    embed=build_ai_home_embed(),
+                    view=self._build_ai_home_view(interaction.user.id),
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("AI home command failed", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to open the AI assistant right now.", ephemeral=True
+                )
+
         self.tree.add_command(dashboard)
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
@@ -202,6 +234,148 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(meetings)
         self.tree.add_command(decisions)
         self.tree.add_command(standup)
+        self.tree.add_command(ai)
+
+    async def on_message(self, message: discord.Message) -> None:  # pragma: no cover - exercised via unit helpers
+        if message.author.bot or not message.content.strip():
+            return
+        session = self.container.ai_session_service.get_session_by_thread_id(str(message.channel.id))
+        if not session:
+            await self.process_commands(message)
+            return
+        actor = resolve_actor_from_user(message.author)
+        started = time.monotonic()
+        try:
+            typing = getattr(message.channel, "typing", None)
+            if callable(typing):
+                async with typing():
+                    answer = await self.container.ai_session_service.handle_message(
+                        actor=actor,
+                        session_id=int(session["id"]),
+                        discord_thread_id=str(message.channel.id),
+                        content=message.content,
+                    )
+            else:
+                answer = await self.container.ai_session_service.handle_message(
+                    actor=actor,
+                    session_id=int(session["id"]),
+                    discord_thread_id=str(message.channel.id),
+                    content=message.content,
+                )
+            for chunk in split_ai_response(answer.content):
+                await message.channel.send(chunk)
+            logger.info(
+                "AI session response completed",
+                extra={
+                    "session_id": session["id"],
+                    "actor_id": actor.user_id,
+                    "retrieval_strategy": answer.retrieval_strategy,
+                    "source_ids": answer.source_refs,
+                    "invalid_source_ids": answer.invalid_source_refs,
+                    "latency_seconds": round(time.monotonic() - started, 3),
+                    "outcome": "success",
+                },
+            )
+        except CSEHQError as error:
+            logger.exception(
+                "AI session message failed",
+                exc_info=error,
+                extra={
+                    "session_id": session["id"],
+                    "actor_id": actor.user_id,
+                    "latency_seconds": round(time.monotonic() - started, 3),
+                    "outcome": error.__class__.__name__,
+                },
+            )
+            await message.channel.send(self._safe_ai_error_message(error))
+
+    def _build_ai_home_view(self, owner_id: int) -> discord.ui.View:
+        view = discord.ui.View(timeout=300)
+        new_button = discord.ui.Button(label="New Session", style=discord.ButtonStyle.primary)
+        list_button = discord.ui.Button(label="My Sessions", style=discord.ButtonStyle.secondary)
+
+        async def ensure_owner(interaction: discord.Interaction) -> bool:
+            if interaction.user.id == owner_id:
+                return True
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "This panel belongs to the user who opened it.", ephemeral=True
+                )
+            return False
+
+        async def create_session(interaction: discord.Interaction) -> None:
+            if not await ensure_owner(interaction):
+                return
+            actor = resolve_actor_from_interaction(interaction)
+            try:
+                thread = await self._create_ai_thread(interaction)
+                session = self.container.ai_session_service.create_session(actor, str(thread.id))
+                await thread.send(embed=build_ai_session_intro_embed(session))
+                await interaction.response.send_message(
+                    f"Created AI session #{session['id']} in <#{thread.id}>.",
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                logger.exception("AI session creation failed", exc_info=error)
+                await interaction.response.send_message(self._safe_ai_error_message(error), ephemeral=True)
+            except Exception as error:  # pragma: no cover
+                logger.exception("Unexpected AI session creation failure", exc_info=error)
+                await interaction.response.send_message(
+                    "Unable to create a private AI session here.", ephemeral=True
+                )
+
+        async def list_sessions(interaction: discord.Interaction) -> None:
+            if not await ensure_owner(interaction):
+                return
+            actor = resolve_actor_from_interaction(interaction)
+            sessions = self.container.ai_session_service.list_sessions(actor)
+            await interaction.response.send_message(
+                embed=build_ai_sessions_embed(sessions),
+                ephemeral=True,
+            )
+
+        new_button.callback = create_session
+        list_button.callback = list_sessions
+        view.add_item(new_button)
+        view.add_item(list_button)
+        return view
+
+    async def _create_ai_thread(self, interaction: discord.Interaction):
+        channel = interaction.channel
+        if isinstance(channel, discord.Thread):
+            if channel.type == discord.ChannelType.private_thread:
+                return channel
+            raise InvalidInputError("Use /ai from a standard channel or an existing private AI thread")
+        if channel is None or not hasattr(channel, "create_thread"):
+            raise InvalidInputError("Use /ai in a server channel that supports private threads")
+        try:
+            return await channel.create_thread(
+                name=f"ai-session-{int(time.time())}"[:80],
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+                auto_archive_duration=60,
+            )
+        except Exception as exc:
+            raise InvalidInputError("Unable to create a private AI session here") from exc
+
+    def _safe_ai_error_message(self, error: CSEHQError) -> str:
+        if isinstance(error, AISessionBusyError):
+            return "This AI session is busy. Try again in a moment."
+        if isinstance(error, AISessionClosedError):
+            return "This AI session is closed. Start a new session from /ai."
+        if isinstance(error, PermissionDeniedError):
+            return "You are not allowed to access this AI session."
+        if isinstance(error, AIConfigurationError):
+            return "AI provider configuration is unavailable right now."
+        if isinstance(error, AIRateLimitError):
+            return "AI provider is busy right now. Please try again later."
+        if isinstance(error, AITimeoutError):
+            return "AI provider timed out. Please try again."
+        if isinstance(error, AIProviderError):
+            return "AI provider is unavailable right now. Please try again later."
+        if isinstance(error, InvalidInputError):
+            return str(error)
+        return "Unable to handle this AI request right now."
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:  # pragma: no cover
         logger.exception("Unhandled command error", exc_info=error)
@@ -212,15 +386,19 @@ def resolve_actor(user_id: int, role_name: str = "member") -> Actor:
     return Actor(user_id=str(user_id), role=ROLE_MAP.get(role_name.lower(), Role.MEMBER))
 
 
-def resolve_actor_from_interaction(interaction: discord.Interaction) -> Actor:
+def resolve_actor_from_user(user: discord.abc.User) -> Actor:
     role_name = "member"
-    if isinstance(interaction.user, discord.Member):
-        role_names = {role.name.lower() for role in interaction.user.roles}
+    if isinstance(user, discord.Member):
+        role_names = {role.name.lower() for role in user.roles}
         if "leader" in role_names:
             role_name = "leader"
         elif {"co-lead", "co lead", "co_lead"} & role_names:
             role_name = "co-lead"
-    return resolve_actor(interaction.user.id, role_name)
+    return resolve_actor(user.id, role_name)
+
+
+def resolve_actor_from_interaction(interaction: discord.Interaction) -> Actor:
+    return resolve_actor_from_user(interaction.user)
 
 
 def main() -> None:  # pragma: no cover
@@ -229,7 +407,7 @@ def main() -> None:  # pragma: no cover
     if not config.discord_token:
         raise RuntimeError("DISCORD_TOKEN is required to run the bot")
     container = ServiceContainer(config)
-    bot = CSEHQBot(container)
+    bot = CSEHQBot(container, enable_message_content=config.ai_enable_message_content)
     bot.run(config.discord_token)
 
 

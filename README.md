@@ -6,6 +6,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
 - Weekly progress reporting
 - Grounded project Q&A through a pluggable AI provider
+- A private, read-only Gemini assistant with permission-aware project retrieval and persistent AI sessions
 - A fake AI provider for local development and an optional Google Gemini provider
 
 ## Requirements
@@ -13,7 +14,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - Python 3.11 or newer
 - A Discord application and bot token
 - A server or local machine that can run a long-lived Python process
-- Optional: a Google Gemini API key for Gemini-powered project Q&A
+- Optional: a Google Gemini API key for Gemini-powered project Q&A and the private `/ai` assistant
 
 ## Local Setup
 
@@ -51,7 +52,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
    cp .env.example .env
    ```
 
-5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` unless Gemini is configured.
+5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` unless Gemini is configured. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal.
 
 ## Environment Variables
 
@@ -61,9 +62,13 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `DISCORD_GUILD_ID` | No | — | Optional Discord server ID for environment-specific configuration. |
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
+| `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. Leave disabled if you only need slash-command UI. |
 | `AI_PROVIDER` | No | `fake` | Set to `fake` for local development or `gemini` to use Gemini. |
-| `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. |
-| `GEMINI_MODEL` | No | `gemini-1.5-flash` | Gemini model name passed to the provider. |
+| `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name passed to the provider when `AI_PROVIDER=gemini`. |
+| `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. The app fails fast with a configuration error if this is missing. |
+| `AI_MAX_CONTEXT_ITEMS` | No | `12` | Maximum bounded project records retrieved for one AI answer. |
+| `AI_MAX_HISTORY_MESSAGES` | No | `8` | Maximum persisted user/assistant messages loaded into one AI request. |
+| `AI_REQUEST_TIMEOUT` | No | `20` | Request timeout in seconds for provider calls. |
 
 Example development configuration:
 
@@ -72,9 +77,13 @@ DISCORD_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=your_discord_server_id
 DATABASE_PATH=./cse_hq.db
 LOG_LEVEL=INFO
+AI_ENABLE_MESSAGE_CONTENT=false
 AI_PROVIDER=fake
+AI_MODEL=gemini-1.5-flash
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
+AI_MAX_CONTEXT_ITEMS=12
+AI_MAX_HISTORY_MESSAGES=8
+AI_REQUEST_TIMEOUT=20
 ```
 
 ## Discord Application Setup
@@ -131,7 +140,7 @@ sudo chmod 600 /etc/cse-hq-bot.env
 sudo chown root:root /etc/cse-hq-bot.env
 ```
 
-Set `DISCORD_TOKEN` and the other values in `/etc/cse-hq-bot.env`. For Gemini, use `AI_PROVIDER=gemini` and provide `GEMINI_API_KEY`.
+Set `DISCORD_TOKEN` and the other values in `/etc/cse-hq-bot.env`. For Gemini, use `AI_PROVIDER=gemini`, set `AI_MODEL`, and provide `GEMINI_API_KEY`.
 
 For a server deployment, consider using an absolute database path so that the database location is independent of the service working directory:
 
@@ -253,6 +262,23 @@ Opens a private standup panel with:
 - Your current daily submission status
 - **Submit / Update** modal for previous work, current work, and optional blockers
 - Team and recent-history views suitable for Discord embed pagination
+
+### `/ai`
+
+Opens the private AI assistant home panel with:
+
+- A read-only assistant for tasks, bugs, meetings, decisions, standups, and recent activity
+- **New Session** to create a private Discord thread-backed AI session
+- **My Sessions** to list your persisted AI sessions
+- Natural thread conversation for authorized session owners only
+
+The assistant is intentionally bounded and permission-aware:
+
+- CSE-HQ remains the source of truth for project state and permissions
+- Project-specific answers are grounded only in retrieved records the actor may access
+- If project evidence is missing, the assistant should say so explicitly
+- Mutation requests such as completing a task are rejected because AI v1 is read-only
+- Prior AI replies are continuity only; fresh project retrieval wins on every request
 
 ### `/weekly_report`
 

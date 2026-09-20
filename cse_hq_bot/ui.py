@@ -27,6 +27,66 @@ STALE_BUG_MESSAGE = "This bug is no longer available in its previous state. Plea
 STALE_MEETING_MESSAGE = "This meeting is no longer available in its previous state. Please refresh the meetings list."
 STALE_DECISION_MESSAGE = "This decision is no longer available in its previous state. Please refresh the decisions list."
 
+AI_RESPONSE_LIMIT = 1800
+
+
+def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
+    cleaned = text.strip()
+    if not cleaned:
+        return [""]
+    chunks: list[str] = []
+    remaining = cleaned
+    while len(remaining) > limit:
+        split_at = remaining.rfind("\n\n", 0, limit + 1)
+        if split_at == -1:
+            split_at = remaining.rfind("\n", 0, limit + 1)
+        if split_at == -1:
+            split_at = remaining.rfind(" ", 0, limit + 1)
+        if split_at == -1:
+            split_at = limit
+        chunk = remaining[:split_at].rstrip()
+        if not chunk:
+            chunk = remaining[:limit]
+            split_at = limit
+        chunks.append(chunk)
+        remaining = remaining[split_at:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def build_ai_home_embed() -> discord.Embed:
+    embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
+    embed.description = (
+        "Private, project-grounded, read-only help for tasks, bugs, meetings, decisions, standups, and recent activity."
+    )
+    embed.add_field(name="Capabilities", value="Tasks, bugs, meetings, decisions, standups, recent activity", inline=False)
+    embed.add_field(name="Boundaries", value="Read-only. No task, bug, meeting, decision, or standup mutations.", inline=False)
+    embed.add_field(name="Actions", value="New Session • My Sessions", inline=False)
+    return embed
+
+
+def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
+    embed = discord.Embed(title="My AI Sessions", color=discord.Color.blurple())
+    if not sessions:
+        embed.description = "No AI sessions found."
+        return embed
+    embed.description = "\n".join(
+        f"`#{session['id']}` {session['status']} • thread `{session['discord_thread_id']}` • last active {session['last_active_at']}"
+        for session in sessions[:10]
+    )
+    return embed
+
+
+def build_ai_session_intro_embed(session: dict) -> discord.Embed:
+    embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
+    embed.description = (
+        "Ask project questions in this thread. The assistant is private, permission-aware, project-grounded, and read-only."
+    )
+    embed.add_field(name="Source of truth", value="Current CSE-HQ project records always win over prior AI replies.", inline=False)
+    embed.add_field(name="Boundaries", value="Mutation requests are rejected. Cite project source IDs when available.", inline=False)
+    return embed
+
 
 def _trim(value: str, *, default: str = "N/A") -> str:
     stripped = value.strip()

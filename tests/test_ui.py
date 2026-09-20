@@ -3,6 +3,8 @@ from datetime import datetime
 from cse_hq_bot.models import ProjectDashboard
 from cse_hq_bot.ui import (
     _pagination_state,
+    build_ai_home_embed,
+    build_ai_sessions_embed,
     build_bug_detail_embed,
     build_bugs_embed,
     build_decision_detail_embed,
@@ -13,6 +15,7 @@ from cse_hq_bot.ui import (
     build_standup_embed,
     build_task_detail_embed,
     build_tasks_embed,
+    split_ai_response,
 )
 
 
@@ -166,3 +169,16 @@ def test_build_standup_embed_empty_and_populated_states():
     assert empty_embed.description == "No standups found."
     assert populated.fields[0].value == "Submitted"
     assert "u1" in (populated.description or "")
+
+
+def test_build_ai_home_and_sessions_embeds_and_chunking():
+    home = build_ai_home_embed()
+    sessions = build_ai_sessions_embed([
+        {"id": 1, "status": "ACTIVE", "discord_thread_id": "123", "last_active_at": "2026-09-20 12:00:00"}
+    ])
+    chunks = split_ai_response("Paragraph one.\n\nParagraph two with TASK-001 and details." * 40, limit=120)
+    assert home.title == "CSE-HQ AI Assistant"
+    assert "Read-only" in home.fields[1].value
+    assert "thread `123`" in (sessions.description or "")
+    assert all(len(chunk) <= 120 for chunk in chunks)
+    assert any("TASK-001" in chunk for chunk in chunks)

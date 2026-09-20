@@ -1,48 +1,24 @@
-from cse_hq_bot.ai.base import AIProvider
-from cse_hq_bot.repositories.bug_repository import BugRepository
-from cse_hq_bot.repositories.project_repository import ProjectRepository
-from cse_hq_bot.repositories.task_repository import TaskRepository
+import asyncio
+
+from cse_hq_bot.models import Actor, Role
+from cse_hq_bot.services.ai_service import AIService
 
 
 class QAService:
-    def __init__(
-        self,
-        provider: AIProvider,
-        project_repo: ProjectRepository,
-        task_repo: TaskRepository,
-        bug_repo: BugRepository,
-    ):
-        self.provider = provider
-        self.project_repo = project_repo
-        self.task_repo = task_repo
-        self.bug_repo = bug_repo
+    def __init__(self, ai_service: AIService):
+        self.ai_service = ai_service
 
-    def build_context(self) -> str:
-        settings = self.project_repo.get_settings()
-        tasks = self.task_repo.list_all()[:10]
-        bugs = self.bug_repo.list_all()[:10]
-        lines = [
-            f"Project: {settings['name']}",
-            f"Description: {settings['description']}",
-            "Tasks:",
-        ]
-        lines.extend(
-            f"- #{task['id']} [{task['status']}] {task['title']}"
-            for task in tasks
+    async def aask(self, question: str) -> str:
+        answer = await self.ai_service.answer_question(
+            actor=Actor("qa", Role.LEADER),
+            question=question,
+            history_messages=[],
         )
-        lines.append("Bugs:")
-        lines.extend(
-            f"- #{bug['id']} [{bug['status']}] {bug['title']}"
-            for bug in bugs
-        )
-        return "\n".join(lines)
+        return answer.content
 
     def ask(self, question: str) -> str:
-        context = self.build_context()
-        prompt = (
-            "You are a project assistant for CSE-HQ. Use only the provided context. "
-            "If context is insufficient, explicitly say you do not have enough information. "
-            "Never claim to update records or perform actions.\n\n"
-            f"Context:\n{context}\n\nQuestion: {question}"
-        )
-        return self.provider.answer(prompt)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.aask(question))
+        raise RuntimeError("QAService.ask() cannot run inside an active event loop; use aask() instead")
