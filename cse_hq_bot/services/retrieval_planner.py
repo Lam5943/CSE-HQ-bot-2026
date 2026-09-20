@@ -26,9 +26,7 @@ class RetrievalPlanner:
             match = re.search(r"meeting-(\d+)", normalized)
             if match:
                 return RetrievalPlan(strategy="meeting_context", query=question, meeting_id=int(match.group(1)))
-        if "meeting" in normalized:
-            return RetrievalPlan(strategy="meeting_lookup", query=question, domains=("meetings",))
-        if any(phrase in normalized for phrase in ("this week", "recent activity", "what happened")):
+        if any(phrase in normalized for phrase in ("this week", "recent activity", "recently")):
             end_time = datetime.now(UTC)
             start_time = end_time - timedelta(days=7)
             return RetrievalPlan(
@@ -39,4 +37,6 @@ class RetrievalPlanner:
             )
         if any(phrase in normalized for phrase in ("why did we choose", "decision rationale", "why was", "why did")):
             return RetrievalPlan(strategy="decision_reasoning", query=question, domains=("decisions", "meetings"))
+        if "meeting" in normalized:
+            return RetrievalPlan(strategy="meeting_lookup", query=question, domains=("meetings",))
         return RetrievalPlan(strategy="fallback_search", query=question)

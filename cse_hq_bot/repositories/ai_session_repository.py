@@ -53,8 +53,6 @@ class AISessionRepository:
                 SELECT id, owner_id, discord_thread_id, status, created_at, last_active_at, closed_at
                 FROM ai_sessions
                 WHERE discord_thread_id = ?
-                ORDER BY id DESC
-                LIMIT 1
                 """,
                 (discord_thread_id,),
             ).fetchone()

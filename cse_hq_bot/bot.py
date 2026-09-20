@@ -241,6 +241,7 @@ class CSEHQBot(commands.Bot):
             return
         session = self.container.ai_session_service.get_session_by_thread_id(str(message.channel.id))
         if not session:
+            await self.process_commands(message)
             return
         actor = resolve_actor_from_user(message.author)
         started = time.monotonic()
@@ -349,7 +350,7 @@ class CSEHQBot(commands.Bot):
             raise InvalidInputError("Use /ai in a server channel that supports private threads")
         try:
             return await channel.create_thread(
-                name=f"ai-{interaction.user.name}-{interaction.user.id}"[:80],
+                name=f"ai-session-{int(time.time())}"[:80],
                 type=discord.ChannelType.private_thread,
                 invitable=False,
                 auto_archive_duration=60,
