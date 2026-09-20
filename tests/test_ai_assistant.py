@@ -17,6 +17,7 @@ from cse_hq_bot.errors import (
     AISessionClosedError,
     AISessionConflictError,
     AITimeoutError,
+    NotFoundError,
     PermissionDeniedError,
 )
 from cse_hq_bot.models import Actor, Role
@@ -102,27 +103,57 @@ def ai_services(tmp_path: Path):
     }
 
 
-class _FakeModel:
-    def __init__(self, result=None, error=None):
+class _FakeAsyncModels:
+    def __init__(self, result=None, error=None, delay=0):
         self.result = result
         self.error = error
+        self.delay = delay
+        self.calls = []
 
-    def generate_content(self, prompt):
+    async def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.delay:
+            await asyncio.sleep(self.delay)
         if self.error:
             raise self.error
         return self.result
 
 
 class _FakeGenAI:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, models, client_error=None):
+        self.models = models
+        self.client_error = client_error
         self.configured_key = None
 
-    def configure(self, api_key):
+    def Client(self, *, api_key):
+        if self.client_error:
+            raise self.client_error
         self.configured_key = api_key
+        return SimpleNamespace(aio=SimpleNamespace(models=self.models))
 
-    def GenerativeModel(self, model_name):
-        return self.model
+
+class _FakeHttpOptions:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class _FakeGenerateContentConfig:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+_FAKE_TYPES = SimpleNamespace(
+    GenerateContentConfig=_FakeGenerateContentConfig,
+    HttpOptions=_FakeHttpOptions,
+)
+
+
+class _TextPropertyFailure:
+    candidates = ()
+
+    @property
+    def text(self):
+        raise ValueError("response has no text parts")
 
 
 @pytest.mark.parametrize(
@@ -130,16 +161,21 @@ class _FakeGenAI:
     [
         (SimpleNamespace(text="hello"), None, None),
         (SimpleNamespace(text=""), None, AIMalformedResponseError),
+        (_TextPropertyFailure(), None, AIMalformedResponseError),
+        (None, None, AIMalformedResponseError),
         (None, RuntimeError("429 rate limit"), AIRateLimitError),
         (None, RuntimeError("deadline exceeded"), AITimeoutError),
+        (None, RuntimeError("invalid API key"), AIConfigurationError),
         (None, RuntimeError("boom"), AIProviderError),
     ],
 )
 def test_gemini_provider_normalizes_results(monkeypatch, result, error, expected_exception):
     from cse_hq_bot.ai import gemini_provider as module
 
-    fake_genai = _FakeGenAI(_FakeModel(result=result, error=error))
+    models = _FakeAsyncModels(result=result, error=error)
+    fake_genai = _FakeGenAI(models)
     monkeypatch.setattr(module, "genai", fake_genai)
+    monkeypatch.setattr(module, "types", _FAKE_TYPES)
     provider = GeminiProvider("secret", "gemini-test")
     coro = provider.generate(
         system_instruction="sys",
@@ -151,6 +187,8 @@ def test_gemini_provider_normalizes_results(monkeypatch, result, error, expected
         response = asyncio.run(coro)
         assert response.text == "hello"
         assert fake_genai.configured_key == "secret"
+        assert models.calls[0]["model"] == "gemini-test"
+        assert models.calls[0]["config"].http_options.timeout == 1000
     else:
         with pytest.raises(expected_exception):
             asyncio.run(coro)
@@ -159,6 +197,70 @@ def test_gemini_provider_normalizes_results(monkeypatch, result, error, expected
 def test_gemini_provider_requires_api_key():
     with pytest.raises(AIConfigurationError):
         GeminiProvider(None, "gemini-test")
+
+
+def test_gemini_provider_extracts_candidate_parts(monkeypatch):
+    from cse_hq_bot.ai import gemini_provider as module
+
+    response = SimpleNamespace(
+        text=None,
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[SimpleNamespace(text="first"), SimpleNamespace(text="second")]
+                )
+            )
+        ],
+    )
+    monkeypatch.setattr(module, "genai", _FakeGenAI(_FakeAsyncModels(result=response)))
+    monkeypatch.setattr(module, "types", _FAKE_TYPES)
+
+    provider = GeminiProvider("secret", "gemini-test")
+    result = asyncio.run(
+        provider.generate(
+            system_instruction="sys",
+            messages=[AIMessage(role="user", content="hi")],
+            context_records=[],
+            timeout_seconds=1,
+        )
+    )
+
+    assert result.text == "first\nsecond"
+
+
+def test_gemini_provider_enforces_async_and_sdk_timeouts(monkeypatch):
+    from cse_hq_bot.ai import gemini_provider as module
+
+    models = _FakeAsyncModels(result=SimpleNamespace(text="late"), delay=0.05)
+    monkeypatch.setattr(module, "genai", _FakeGenAI(models))
+    monkeypatch.setattr(module, "types", _FAKE_TYPES)
+    provider = GeminiProvider("secret", "gemini-test")
+
+    with pytest.raises(AITimeoutError):
+        asyncio.run(
+            provider.generate(
+                system_instruction="sys",
+                messages=[AIMessage(role="user", content="hi")],
+                context_records=[],
+                timeout_seconds=0.01,
+            )
+        )
+
+    assert models.calls[0]["config"].http_options.timeout == 10
+
+
+def test_gemini_provider_normalizes_client_configuration_failure(monkeypatch):
+    from cse_hq_bot.ai import gemini_provider as module
+
+    monkeypatch.setattr(
+        module,
+        "genai",
+        _FakeGenAI(_FakeAsyncModels(), client_error=RuntimeError("invalid API key")),
+    )
+    monkeypatch.setattr(module, "types", _FAKE_TYPES)
+
+    with pytest.raises(AIConfigurationError):
+        GeminiProvider("secret", "gemini-test")
 
 
 @pytest.mark.parametrize(
@@ -192,6 +294,35 @@ def test_ai_service_grounds_answers_and_rejects_fabricated_source_ids(ai_service
     assert answer.invalid_source_refs == ["DEC-999"]
     assert ai_services["provider"].called == 1
     assert any(record.source_id == "TASK-001" for record in ai_services["provider"].last_context_records)
+
+
+@pytest.mark.parametrize(
+    ("provider_text", "valid_refs", "invalid_refs"),
+    [
+        ("The active item is TASK-001.", ["TASK-001"], []),
+        ("The active item is TASK-999.", [], ["TASK-999"]),
+        ("Compare TASK-001 with TASK-999.", ["TASK-001"], ["TASK-999"]),
+    ],
+)
+def test_ai_service_validates_each_citation_shape(
+    ai_services, provider_text, valid_refs, invalid_refs
+):
+    leader = Actor("lead", Role.LEADER)
+    ai_services["task"].create_task(
+        leader, "Implement API", "Grounded work", 3, assignee_id="lead"
+    )
+    ai_services["provider"].text = provider_text
+
+    answer = asyncio.run(
+        ai_services["ai"].answer_question(
+            actor=leader,
+            question="What am I working on?",
+            history_messages=[],
+        )
+    )
+
+    assert answer.source_refs == valid_refs
+    assert answer.invalid_source_refs == invalid_refs
 
 
 def test_ai_service_marks_missing_project_evidence_in_prompt(ai_services):
@@ -372,6 +503,20 @@ def test_ai_session_service_rejects_closed_session_and_bounds_history(ai_service
         )
 
 
+def test_ai_session_service_rejects_missing_session(ai_services):
+    owner = Actor("owner", Role.MEMBER)
+
+    with pytest.raises(NotFoundError):
+        asyncio.run(
+            ai_services["sessions"].handle_message(
+                actor=owner,
+                session_id=999,
+                discord_thread_id="thread-missing",
+                content="hi",
+            )
+        )
+
+
 def test_ai_session_service_rejects_busy_requests(ai_services):
     owner = Actor("owner", Role.MEMBER)
 
@@ -438,6 +583,43 @@ def test_ai_session_service_releases_busy_lock_after_provider_error(ai_services)
 
     asyncio.run(runner())
     assert provider.called == 2
+
+
+def test_message_content_disabled_guides_once_in_ai_session():
+    class FakeSessionService:
+        def get_session_by_thread_id(self, thread_id):
+            assert thread_id == "thread-1"
+            return {"id": 1, "discord_thread_id": thread_id, "status": "ACTIVE"}
+
+    class FakeChannel:
+        id = "thread-1"
+
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content):
+            self.sent.append(content)
+
+    channel = FakeChannel()
+    message = SimpleNamespace(
+        author=SimpleNamespace(bot=False, id="owner"),
+        channel=channel,
+        content="",
+    )
+    bot = CSEHQBot(
+        SimpleNamespace(ai_session_service=FakeSessionService()),
+        enable_message_content=False,
+    )
+
+    async def runner():
+        await bot.on_message(message)
+        await bot.on_message(message)
+
+    asyncio.run(runner())
+
+    assert len(channel.sent) == 1
+    assert "Natural AI session chat is disabled" in channel.sent[0]
+    assert "AI_ENABLE_MESSAGE_CONTENT" in channel.sent[0]
 
 
 def test_bot_safe_ai_messages_are_concise():

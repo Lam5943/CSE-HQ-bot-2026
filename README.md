@@ -62,7 +62,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `DISCORD_GUILD_ID` | No | — | Optional Discord server ID for environment-specific configuration. |
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
-| `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. Leave disabled if you only need slash-command UI. |
+| `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. When disabled, AI threads return one concise configuration hint per user instead of failing silently. |
 | `AI_PROVIDER` | No | `fake` | Set to `fake` for local development or `gemini` to use Gemini. |
 | `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name passed to the provider when `AI_PROVIDER=gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. The app fails fast with a configuration error if this is missing. |
@@ -271,6 +271,7 @@ Opens the private AI assistant home panel with:
 - **New Session** to create a private Discord thread-backed AI session
 - **My Sessions** to list your persisted AI sessions
 - Natural thread conversation for authorized session owners only
+- Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
 
 The assistant is intentionally bounded and permission-aware:
 
@@ -301,10 +302,11 @@ Update `.env` on a local machine or `/etc/cse-hq-bot.env` on a server:
 ```dotenv
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-1.5-flash
+AI_MODEL=gemini-1.5-flash
+AI_REQUEST_TIMEOUT=20
 ```
 
-`GEMINI_API_KEY` is required when `AI_PROVIDER=gemini`. The configured model name is passed directly to the `google-generativeai` client.
+`GEMINI_API_KEY` is required when `AI_PROVIDER=gemini`. `AI_MODEL` is passed directly to the supported `google.genai` client. `AI_REQUEST_TIMEOUT` is enforced both at the SDK request layer and by the provider's async deadline.
 
 ### 3. Restart the bot
 
@@ -327,8 +329,8 @@ If Gemini initialization fails, verify all of the following:
 
 - `AI_PROVIDER` is exactly `gemini`.
 - `GEMINI_API_KEY` is present and valid.
-- `GEMINI_MODEL` is a model available to the configured Gemini API account.
-- The installed `google-generativeai` dependency is present in the active virtual environment.
+- `AI_MODEL` is a model available to the configured Gemini API account.
+- The installed `google-genai` dependency is present in the active virtual environment.
 - The server can make outbound HTTPS requests.
 
 ## Tests
