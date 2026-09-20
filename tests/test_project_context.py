@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from cse_hq_bot.db import Database
-from cse_hq_bot.errors import PermissionDeniedError
+from cse_hq_bot.errors import InvalidInputError, PermissionDeniedError
 from cse_hq_bot.models import Actor, BugStatus, Role, TaskStatus
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
@@ -259,6 +259,8 @@ def test_project_context_permissions_recent_activity_search_and_empty_state(serv
     assert search_results
     assert all(isinstance(result, dict) for result in search_results)
     assert {"source_type", "source_id", "title", "snippet", "timestamp", "relevance_hint"} <= set(search_results[0])
+    with pytest.raises(InvalidInputError):
+        services["context"].search_project_memory(owner, "docs", domains=["unknown"])
 
     empty = services["context"].get_current_work(outsider)
     assert empty["active_tasks"] == []

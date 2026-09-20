@@ -1,4 +1,6 @@
-from cse_hq_bot.errors import InvalidInputError, NotFoundError, PermissionDeniedError
+from datetime import datetime
+
+from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.identifiers import bug_code, decision_code, meeting_code, standup_code, task_code
 from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, Role, TaskStatus
 from cse_hq_bot.permissions import ensure_can_view_member_context
@@ -70,8 +72,7 @@ class ProjectContextService:
             for task in self.task_service.list_accessible_tasks(actor)
             if task.get("assignee_id") == subject_id
         ]
-        subject_actor = actor if subject_id == actor.user_id else Actor(subject_id, Role.MEMBER)
-        today = self.standup_service.today_for_actor(subject_actor)
+        today = self.standup_service.today_for_actor(actor)
         standup = next(
             (
                 entry
@@ -200,21 +201,27 @@ class ProjectContextService:
                 self._standup_search_result(standup, needle)
                 for standup in self.standup_service.search_standups(actor, needle)
             )
-        results.sort(key=lambda item: item["timestamp"] or "", reverse=True)
-        results.sort(key=lambda item: 0 if item["relevance_hint"].startswith("title") else 1)
-        return results[: self._normalize_limit(limit)]
+            results.sort(
+                key=lambda item: (
+                    0 if item["relevance_hint"].startswith("title") else 1,
+                    -self._timestamp_sort_key(item["timestamp"]),
+                    item["source_id"],
+                )
+            )
+            return results[: self._normalize_limit(limit)]
 
     def _collect_accessible_activity(self, actor: Actor, limit: int, loader) -> list[dict]:
         target_limit = self._normalize_limit(limit)
         batch_size = min(max(target_limit, self.DEFAULT_ACTIVITY_LIMIT), ActivityService.MAX_LIMIT)
         visible: list[dict] = []
+        access = self._build_activity_access(actor)
         offset = 0
         while len(visible) < target_limit:
             batch = loader(batch_size, offset)
             if not batch:
                 break
             for activity in batch:
-                if self._can_access_activity(actor, activity):
+                if self._can_access_activity(actor, activity, access):
                     visible.append(activity)
                     if len(visible) >= target_limit:
                         break
@@ -223,26 +230,25 @@ class ProjectContextService:
             offset += len(batch)
         return visible
 
-    def _can_access_activity(self, actor: Actor, activity: dict) -> bool:
+    def _build_activity_access(self, actor: Actor) -> dict:
+        return {
+            "task_ids": {task_code(task) for task in self.task_service.list_accessible_tasks(actor)},
+            "bug_ids": {bug_code(bug) for bug in self.bug_service.list_accessible_bugs(actor)},
+            "standup_user_id": None if actor.role in {Role.LEADER, Role.CO_LEAD} else actor.user_id,
+        }
+
+    def _can_access_activity(self, actor: Actor, activity: dict, access: dict) -> bool:
         metadata = activity.get("metadata") or {}
-        row_id = metadata.get("row_id")
-        try:
-            if activity.get("entity_type") == "task":
-                self.task_service.get_task(actor, int(row_id))
-                return True
-            if activity.get("entity_type") == "bug":
-                self.bug_service.get_bug(actor, int(row_id))
-                return True
-            if activity.get("entity_type") == "meeting":
-                self.meeting_service.get_meeting(actor, int(row_id))
-                return True
-            if activity.get("entity_type") == "decision":
-                self.decision_service.get_decision(actor, int(row_id))
-                return True
-            if activity.get("entity_type") == "standup":
-                return self.standup_service.get_standup(actor, int(row_id)) is not None
-        except (NotFoundError, PermissionDeniedError, ValueError, TypeError):
-            return False
+        entity_type = activity.get("entity_type")
+        if entity_type == "task":
+            return activity.get("entity_id") in access["task_ids"]
+        if entity_type == "bug":
+            return activity.get("entity_id") in access["bug_ids"]
+        if entity_type in {"meeting", "decision"}:
+            return True
+        if entity_type == "standup":
+            standup_user_id = access["standup_user_id"]
+            return standup_user_id is None or metadata.get("user_id") == standup_user_id
         return False
 
     def _normalize_limit(self, limit: int) -> int:
@@ -338,3 +344,14 @@ class ProjectContextService:
         start = max(index - 30, 0)
         end = min(index + len(needle) + 90, len(haystack))
         return haystack[start:end]
+
+    def _timestamp_sort_key(self, value: str | None) -> float:
+        if not value:
+            return float("-inf")
+        normalized = value.replace("Z", "+00:00")
+        if "T" not in normalized and " " in normalized:
+            normalized = normalized.replace(" ", "T", 1)
+        try:
+            return datetime.fromisoformat(normalized).timestamp()
+        except ValueError:
+            return float("-inf")

@@ -49,6 +49,7 @@ class StandupService:
                 "row_id": standup_id,
                 "date": normalized_date,
                 "has_blockers": bool(standup.get("blockers")),
+                "user_id": standup["user_id"],
             },
         )
         return standup_id
