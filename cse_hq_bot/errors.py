@@ -54,6 +54,30 @@ class AISessionConflictError(CSEHQError):
     """Raised when a Discord thread is already bound to an AI session."""
 
 
+class AIActionError(CSEHQError):
+    """Base error for confirmed AI action proposals."""
+
+
+class AIActionUnsupportedError(AIActionError):
+    """Raised when a requested action is outside the bounded registry."""
+
+
+class AIActionValidationError(AIActionError):
+    """Raised when an action proposal does not match its application schema."""
+
+
+class AIActionExpiredError(AIActionError):
+    """Raised when a pending proposal has expired."""
+
+
+class AIActionConflictError(AIActionError):
+    """Raised when project state changed after a proposal was created."""
+
+
+class AIActionAlreadyHandledError(AIActionError):
+    """Raised when a proposal is no longer pending."""
+
+
 class GitHubProviderError(CSEHQError):
     """Raised when GitHub provider operations fail."""
 

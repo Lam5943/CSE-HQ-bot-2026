@@ -7,6 +7,7 @@ from cse_hq_bot.db import Database
 from cse_hq_bot.errors import AIConfigurationError
 from cse_hq_bot.github_provider import GitHubProvider
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
+from cse_hq_bot.repositories.ai_action_repository import AIActionProposalRepository
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
@@ -14,6 +15,9 @@ from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.repositories.project_repository import ProjectRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
 from cse_hq_bot.services.activity_service import ActivityService
+from cse_hq_bot.services.ai_action_interpreter import AIActionInterpreter
+from cse_hq_bot.services.ai_action_registry import AIActionRegistry
+from cse_hq_bot.services.ai_action_service import AIActionService
 from cse_hq_bot.services.ai_service import AIService
 from cse_hq_bot.services.ai_session_service import AISessionService
 from cse_hq_bot.services.bug_service import BugService
@@ -38,6 +42,7 @@ class ServiceContainer:
 
         project_repo = ProjectRepository(db)
         ai_session_repo = AISessionRepository(db)
+        ai_action_repo = AIActionProposalRepository(db)
         task_repo = TaskRepository(db)
         bug_repo = BugRepository(db)
         collab_repo = CollaborationRepository(db)
@@ -91,6 +96,24 @@ class ServiceContainer:
         )
 
         provider = build_ai_provider(config)
+        self.ai_action_registry = AIActionRegistry(
+            self.task_service,
+            self.bug_service,
+        )
+        self.ai_action_service = AIActionService(
+            ai_action_repo,
+            ai_session_repo,
+            self.ai_action_registry,
+            expiration_seconds=config.ai_action_expiration_seconds,
+        )
+        self.ai_action_interpreter = AIActionInterpreter(
+            provider,
+            self.ai_action_registry,
+            self.task_service,
+            self.bug_service,
+            timeout_seconds=config.ai_request_timeout,
+            max_candidates=config.ai_max_context_items,
+        )
         self.retrieval_planner = RetrievalPlanner()
         self.prompt_builder = PromptBuilder()
         self.ai_service = AIService(
@@ -100,11 +123,13 @@ class ServiceContainer:
             self.prompt_builder,
             max_context_items=config.ai_max_context_items,
             request_timeout=config.ai_request_timeout,
+            action_interpreter=self.ai_action_interpreter,
         )
         self.ai_session_service = AISessionService(
             ai_session_repo,
             self.ai_service,
             max_history_messages=config.ai_max_history_messages,
+            action_service=self.ai_action_service,
         )
         self.qa_service = QAService(self.ai_service)
 

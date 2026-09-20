@@ -3,7 +3,11 @@ from collections.abc import Callable
 
 import discord
 
+from cse_hq_bot.ai.action_models import ActionProposal
 from cse_hq_bot.errors import (
+    AIActionAlreadyHandledError,
+    AIActionConflictError,
+    AIActionExpiredError,
     CSEHQError,
     InvalidInputError,
     InvalidTransitionError,
@@ -18,6 +22,7 @@ from cse_hq_bot.models import (
     TaskStatus,
 )
 from cse_hq_bot.permissions import ensure_can_modify_bug, ensure_can_modify_task
+from cse_hq_bot.services.ai_action_service import AIActionService
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.github_service import GitHubService
@@ -65,10 +70,10 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 def build_ai_home_embed() -> discord.Embed:
     embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
     embed.description = (
-        "Private, project-grounded, read-only help for tasks, bugs, meetings, decisions, standups, and recent activity."
+        "Private, project-grounded help plus explicitly confirmed Task and Bug actions."
     )
-    embed.add_field(name="Capabilities", value="Tasks, bugs, meetings, decisions, standups, recent activity", inline=False)
-    embed.add_field(name="Boundaries", value="Read-only. No task, bug, meeting, decision, or standup mutations.", inline=False)
+    embed.add_field(name="Capabilities", value="Q&A plus bounded Task and Bug action proposals", inline=False)
+    embed.add_field(name="Boundaries", value="Read-only by default. No mutation occurs without your explicit confirmation; GitHub and all other domains remain read-only.", inline=False)
     embed.add_field(name="Actions", value="New Session • My Sessions", inline=False)
     return embed
 
@@ -88,10 +93,29 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
     embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
     embed.description = (
-        "Ask project questions in this thread. The assistant is private, permission-aware, project-grounded, and read-only."
+        "Ask project questions or propose one supported Task/Bug action. The assistant is private, permission-aware, and project-grounded."
     )
     embed.add_field(name="Source of truth", value="Current CSE-HQ project records always win over prior AI replies.", inline=False)
-    embed.add_field(name="Boundaries", value="Mutation requests are rejected. Cite project source IDs when available.", inline=False)
+    embed.add_field(name="Boundaries", value="Actions require Confirm, expire automatically, and are revalidated before execution. GitHub remains read-only.", inline=False)
+    return embed
+
+
+def build_ai_action_embed(proposal: ActionProposal) -> discord.Embed:
+    embed = discord.Embed(
+        title="🤖 AI Action Proposal",
+        description=proposal.summary,
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="Status", value=proposal.status, inline=True)
+    embed.add_field(name="Expires", value=proposal.expires_at, inline=True)
+    embed.add_field(
+        name="Safety",
+        value=(
+            "No project data has changed. The action executes only after the proposal "
+            "owner presses Confirm, and permissions/state are checked again."
+        ),
+        inline=False,
+    )
     return embed
 
 
@@ -465,8 +489,8 @@ def build_standup_embed(
 
 
 class OwnedView(discord.ui.View):
-    def __init__(self, owner_id: int):
-        super().__init__(timeout=300)
+    def __init__(self, owner_id: int, *, timeout: float | None = 300):
+        super().__init__(timeout=timeout)
         self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -477,6 +501,82 @@ class OwnedView(discord.ui.View):
                 "This panel belongs to the user who opened it.", ephemeral=True
             )
         return False
+
+
+class AIActionConfirmationView(OwnedView):
+    def __init__(
+        self,
+        *,
+        owner_id: int,
+        proposal_id: int,
+        action_service: AIActionService,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        timeout: float = 600,
+    ):
+        super().__init__(owner_id, timeout=timeout)
+        self.proposal_id = proposal_id
+        self.action_service = action_service
+        self.actor_resolver = actor_resolver
+
+    @discord.ui.button(label="Confirm", emoji="✅", style=discord.ButtonStyle.success)
+    async def confirm(
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        try:
+            result = self.action_service.confirm(
+                self.actor_resolver(interaction), self.proposal_id
+            )
+        except CSEHQError as error:
+            await self._send_error(interaction, error)
+            return
+        self._disable()
+        await interaction.response.edit_message(
+            content=result.message,
+            embed=None,
+            view=self,
+        )
+
+    @discord.ui.button(label="Cancel", emoji="❌", style=discord.ButtonStyle.danger)
+    async def cancel(
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        try:
+            result = self.action_service.cancel(
+                self.actor_resolver(interaction), self.proposal_id
+            )
+        except CSEHQError as error:
+            await self._send_error(interaction, error)
+            return
+        self._disable()
+        await interaction.response.edit_message(
+            content=result.message,
+            embed=None,
+            view=self,
+        )
+
+    def _disable(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        self.stop()
+
+    async def _send_error(
+        self, interaction: discord.Interaction, error: CSEHQError
+    ) -> None:
+        if isinstance(error, AIActionExpiredError):
+            message = "This action proposal expired. Create and review a new proposal."
+        elif isinstance(error, AIActionConflictError):
+            message = (
+                "The project record changed after this action was proposed. "
+                "Refresh the project state and try again."
+            )
+        elif isinstance(error, AIActionAlreadyHandledError):
+            message = "This action proposal has already been handled."
+        elif isinstance(error, PermissionDeniedError):
+            message = "Only the proposal creator may handle this action."
+        else:
+            message = "This action could not be completed safely."
+        await interaction.response.send_message(message, ephemeral=True)
 
 
 class ProjectManageModal(discord.ui.Modal, title="Manage Project Dashboard"):

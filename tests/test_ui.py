@@ -1,15 +1,17 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
+from cse_hq_bot.ai.action_models import ActionProposal
 from cse_hq_bot.models import ProjectDashboard
 from cse_hq_bot.ui import (
     _pagination_state,
+    build_ai_action_embed,
     build_ai_home_embed,
     build_ai_sessions_embed,
     build_bug_detail_embed,
     build_bugs_embed,
+    build_dashboard_embed,
     build_decision_detail_embed,
     build_decisions_embed,
-    build_dashboard_embed,
     build_meeting_detail_embed,
     build_meetings_embed,
     build_standup_embed,
@@ -28,7 +30,7 @@ def test_build_dashboard_embed_contains_management_fields():
         sprint="Sprint 2",
         deadline="2026-10-10",
         status="On Track",
-        updated_at=datetime(2026, 9, 20, 12, 0, 0),
+        updated_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
         task_total=10,
         task_open=4,
         task_done=6,
@@ -182,3 +184,27 @@ def test_build_ai_home_and_sessions_embeds_and_chunking():
     assert "thread `123`" in (sessions.description or "")
     assert all(len(chunk) <= 120 for chunk in chunks)
     assert any("TASK-001" in chunk for chunk in chunks)
+
+
+def test_build_ai_action_embed_states_no_mutation_before_confirmation():
+    proposal = ActionProposal(
+        id=1,
+        session_id=2,
+        actor_id="owner",
+        action_type="task_complete",
+        target_type="task",
+        target_id=14,
+        arguments={},
+        summary='TASK-014 "Prepare dataset": in_progress → done',
+        expected_state={"status": "in_progress"},
+        status="PENDING",
+        source_message_id=3,
+        created_at="2026-09-21T12:00:00+00:00",
+        expires_at="2026-09-21T12:10:00+00:00",
+    )
+
+    embed = build_ai_action_embed(proposal)
+
+    assert embed.title == "🤖 AI Action Proposal"
+    assert "TASK-014" in (embed.description or "")
+    assert "No project data has changed" in embed.fields[2].value

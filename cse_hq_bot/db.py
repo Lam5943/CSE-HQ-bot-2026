@@ -125,6 +125,29 @@ class Database:
                     FOREIGN KEY(session_id) REFERENCES ai_sessions(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_action_proposals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    action_type TEXT NOT NULL,
+                    target_type TEXT,
+                    target_id INTEGER,
+                    arguments_json TEXT NOT NULL DEFAULT '{}',
+                    summary TEXT NOT NULL,
+                    expected_state_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL,
+                    source_message_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    confirmed_at TEXT,
+                    confirmed_by TEXT,
+                    executed_at TEXT,
+                    cancelled_at TEXT,
+                    error_code TEXT,
+                    FOREIGN KEY(session_id) REFERENCES ai_sessions(id),
+                    FOREIGN KEY(source_message_id) REFERENCES ai_messages(id)
+                );
+
                 CREATE TABLE IF NOT EXISTS github_cache (
                     item_type TEXT NOT NULL,
                     external_id TEXT NOT NULL,
@@ -185,6 +208,12 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_action_session ON ai_action_proposals(session_id, status, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_action_owner ON ai_action_proposals(actor_id, status, id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_github_cache_type ON github_cache(item_type, synced_at)"

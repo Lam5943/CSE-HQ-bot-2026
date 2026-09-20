@@ -6,7 +6,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
 - Weekly progress reporting
 - Grounded project Q&A through a pluggable AI provider
-- A private, read-only Gemini assistant with permission-aware project retrieval and persistent AI sessions
+- A private, grounded assistant with persistent sessions and explicitly confirmed Task/Bug actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
 
 ## Requirements
@@ -74,6 +74,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `AI_FALLBACK_PROVIDER` | No | `openai` | Fallback provider name. AI Provider Failover v1 supports only `openai`. |
 | `OPENAI_API_KEY` | Required for fallback attempts | — | OpenAI API key. It is optional at startup and unused while fallback is disabled. |
 | `OPENAI_MODEL` | Required for fallback attempts | — | Deployment-selected OpenAI model; no OpenAI model is hardcoded. |
+| `AI_ACTION_EXPIRATION_SECONDS` | No | `600` | Seconds before an unconfirmed AI action proposal expires; minimum 60 seconds. |
 | `GITHUB_ENABLED` | No | `false` | Enable the optional read-only GitHub integration. |
 | `GITHUB_REPOSITORY_OWNER` | Required when GitHub is enabled | — | Owner of the single repository connected in v1. |
 | `GITHUB_REPOSITORY_NAME` | Required when GitHub is enabled | — | Repository name connected in v1. |
@@ -96,6 +97,7 @@ GEMINI_API_KEY=
 AI_MAX_CONTEXT_ITEMS=12
 AI_MAX_HISTORY_MESSAGES=8
 AI_REQUEST_TIMEOUT=20
+AI_ACTION_EXPIRATION_SECONDS=600
 ```
 
 ## Discord Application Setup
@@ -279,7 +281,8 @@ Opens a private standup panel with:
 
 Opens the private AI assistant home panel with:
 
-- A read-only assistant for tasks, bugs, meetings, decisions, standups, and recent activity
+- Grounded Q&A for tasks, bugs, meetings, decisions, standups, GitHub context, and recent activity
+- Human-confirmed proposals for one supported Task or Bug mutation at a time
 - **New Session** to create a private Discord thread-backed AI session
 - **My Sessions** to list your persisted AI sessions
 - Natural thread conversation for authorized session owners only
@@ -290,7 +293,9 @@ The assistant is intentionally bounded and permission-aware:
 - CSE-HQ remains the source of truth for project state and permissions
 - Project-specific answers are grounded only in retrieved records the actor may access
 - If project evidence is missing, the assistant should say so explicitly
-- Mutation requests such as completing a task are rejected because AI v1 is read-only
+- Supported Task/Bug mutations produce a persisted preview with **Confirm** and **Cancel**; no mutation occurs when the preview is shown
+- Confirmation ownership, expiry, session state, permissions, target state, and lifecycle transitions are checked again before execution
+- Meeting, decision, standup, GitHub, repository, batch, and multi-step actions remain unavailable
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
 
 ### `/weekly_report`
@@ -332,6 +337,7 @@ AI_FALLBACK_ENABLED=false
 AI_FALLBACK_PROVIDER=openai
 OPENAI_API_KEY=
 OPENAI_MODEL=
+AI_ACTION_EXPIRATION_SECONDS=600
 ```
 
 `GEMINI_API_KEY` is required when `AI_PROVIDER=gemini`. `AI_MODEL` is passed directly to the supported `google.genai` client. `AI_REQUEST_TIMEOUT` is enforced both at the SDK request layer and by the provider's async deadline.
@@ -377,6 +383,21 @@ AI_REQUEST_TIMEOUT=20
 Fallback is attempted only after a normalized rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
 
 Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, SDK retries are disabled for the OpenAI fallback, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop Gemini startup or successful Gemini requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
+
+## AI Actions v2
+
+AI Actions v2 adds a bounded mutation path alongside ordinary grounded Q&A. The language model may interpret a request into a structured proposal, but it cannot execute service methods. CSE-HQ validates the proposal, persists it, displays its exact effect, and requires the proposal owner to press **Confirm** before application code invokes the existing domain service.
+
+Supported actions are:
+
+- Tasks: create, assign, start, block, complete, and reopen
+- Bugs: assign, transition to a supported status, resolve, and reopen
+
+Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Gemini or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls `TaskService` or `BugService`. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
+
+Assignments resolve only to known Discord members available to the message context. Ambiguous targets or members require clarification rather than model selection. Raw or malformed model output, unknown actions, arbitrary parameters, and inaccessible records cannot become executable proposals.
+
+GitHub remains strictly read-only. Meeting/decision/standup mutations, GitHub writes, batch actions, chained workflows, autonomous execution, shell commands, repository changes, and delegated confirmation are not supported. **The AI cannot modify project data without explicit user confirmation.**
 
 ## Configuring GitHub Integration v1
 
