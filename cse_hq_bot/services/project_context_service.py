@@ -164,6 +164,7 @@ class ProjectContextService:
         needle = query.strip()
         if not needle:
             raise InvalidInputError("Search text is required")
+        search_limit = self._normalize_limit(limit)
         normalized_domains = list(self._SEARCH_DOMAINS) if domains is None else list(domains)
         invalid_domains = [domain for domain in normalized_domains if domain not in self._SEARCH_DOMAINS]
         if invalid_domains:
@@ -173,27 +174,27 @@ class ProjectContextService:
         if "tasks" in normalized_domains:
             results.extend(
                 self._task_search_result(task, needle)
-                for task in self.task_service.filter_tasks(actor, search=needle)
+                for task in self.task_service.filter_tasks(actor, search=needle)[:search_limit]
             )
         if "bugs" in normalized_domains:
             results.extend(
                 self._bug_search_result(bug, needle)
-                for bug in self.bug_service.filter_bugs(actor, search=needle)
+                for bug in self.bug_service.filter_bugs(actor, search=needle)[:search_limit]
             )
         if "meetings" in normalized_domains:
             results.extend(
                 self._meeting_search_result(meeting, needle)
-                for meeting in self.meeting_service.search_meetings(actor, needle)
+                for meeting in self.meeting_service.search_meetings(actor, needle)[:search_limit]
             )
         if "decisions" in normalized_domains:
             results.extend(
                 self._decision_search_result(decision, needle)
-                for decision in self.decision_service.search_decisions(actor, needle)
+                for decision in self.decision_service.search_decisions(actor, needle)[:search_limit]
             )
         if "standups" in normalized_domains:
             results.extend(
                 self._standup_search_result(standup, needle)
-                for standup in self.standup_service.search_standups(actor, needle)
+                for standup in self.standup_service.search_standups(actor, needle)[:search_limit]
             )
         results.sort(
             key=lambda item: (
@@ -202,7 +203,7 @@ class ProjectContextService:
                 item["source_id"],
             )
         )
-        return results[: self._normalize_limit(limit)]
+        return results[:search_limit]
 
     def _collect_accessible_activity(self, actor: Actor, limit: int, loader) -> list[dict]:
         target_limit = self._normalize_limit(limit)
@@ -230,11 +231,10 @@ class ProjectContextService:
             "bug_ids": {bug_code(bug) for bug in self.bug_service.list_accessible_bugs(actor)},
             "meeting_ids": {meeting_code(meeting) for meeting in self.meeting_service.list_accessible_meetings(actor)},
             "decision_ids": {decision_code(decision) for decision in self.decision_service.list_accessible_decisions(actor)},
-            "standup_user_id": None if actor.role in {Role.LEADER, Role.CO_LEAD} else actor.user_id,
+            "standup_ids": {standup_code(standup) for standup in self.standup_service.list_accessible_standups(actor)},
         }
 
     def _can_access_activity(self, actor: Actor, activity: dict, access: dict) -> bool:
-        metadata = activity.get("metadata") or {}
         entity_type = activity.get("entity_type")
         if entity_type == "task":
             return activity.get("entity_id") in access["task_ids"]
@@ -245,8 +245,7 @@ class ProjectContextService:
         if entity_type == "decision":
             return activity.get("entity_id") in access["decision_ids"]
         if entity_type == "standup":
-            standup_user_id = access["standup_user_id"]
-            return standup_user_id is None or metadata.get("user_id") == standup_user_id
+            return activity.get("entity_id") in access["standup_ids"]
         return False
 
     def _normalize_limit(self, limit: int) -> int:

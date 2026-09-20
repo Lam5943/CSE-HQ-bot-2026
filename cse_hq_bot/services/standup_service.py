@@ -69,6 +69,12 @@ class StandupService:
     def list_recent(self, actor: Actor, days: int = 7) -> list[dict]:
         return self.repo.list_recent_standups(days=max(days, 1))
 
+    def list_accessible_standups(self, actor: Actor) -> list[dict]:
+        standups = self.repo.list_standups()
+        if actor.role in {Role.LEADER, Role.CO_LEAD}:
+            return standups
+        return [standup for standup in standups if standup.get("user_id") == actor.user_id]
+
     def weekly_standup_summary(self, days: int = 7) -> dict:
         standups = self.repo.list_recent_standups(days=max(days, 1))
         blockers = [entry["blockers"] for entry in standups if entry.get("blockers")]

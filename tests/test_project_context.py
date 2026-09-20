@@ -264,6 +264,8 @@ def test_project_context_permissions_recent_activity_search_and_empty_state(serv
     assert all(result["source_type"] == "meeting" for result in meeting_only_results)
     with pytest.raises(InvalidInputError):
         services["context"].search_project_memory(owner, "docs", domains=["unknown"])
+    with pytest.raises(InvalidInputError):
+        services["context"].search_project_memory(owner, "   ")
 
     empty = services["context"].get_current_work(outsider)
     assert empty["active_tasks"] == []
