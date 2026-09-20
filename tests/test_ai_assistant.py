@@ -15,6 +15,7 @@ from cse_hq_bot.errors import (
     AIRateLimitError,
     AISessionBusyError,
     AISessionClosedError,
+    AISessionConflictError,
     AITimeoutError,
     PermissionDeniedError,
 )
@@ -247,6 +248,44 @@ def test_mutation_requests_are_rejected_without_provider_call(ai_services):
     assert ai_services["provider"].called == 0
 
 
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Complete TASK-003.",
+        "Assign TASK-005 to Bob.",
+        "Resolve BUG-004.",
+        "Edit decision DEC-001.",
+    ],
+)
+def test_direct_mutation_requests_are_rejected(ai_services, question):
+    leader = Actor("lead", Role.LEADER)
+
+    answer = asyncio.run(
+        ai_services["ai"].answer_question(actor=leader, question=question, history_messages=[])
+    )
+
+    assert answer.retrieval_strategy == "mutation_rejected"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How do I complete TASK-003?",
+        "What would happen if we closed BUG-004?",
+        "Who is assigned to TASK-005?",
+        "Why was decision DEC-001 edited?",
+    ],
+)
+def test_informational_mutation_questions_are_allowed(ai_services, question):
+    leader = Actor("lead", Role.LEADER)
+
+    answer = asyncio.run(
+        ai_services["ai"].answer_question(actor=leader, question=question, history_messages=[])
+    )
+
+    assert answer.retrieval_strategy != "mutation_rejected"
+
+
 def test_ai_session_service_persists_messages_and_enforces_access(ai_services):
     owner = Actor("owner", Role.MEMBER)
     other = Actor("other", Role.MEMBER)
@@ -288,6 +327,26 @@ def test_ai_session_service_persists_messages_and_enforces_access(ai_services):
                 content="hi",
             )
         )
+
+
+def test_ai_session_service_rejects_duplicate_thread_before_database_write(ai_services, monkeypatch):
+    owner = Actor("owner", Role.MEMBER)
+    sessions = ai_services["sessions"]
+    original = sessions.create_session(owner, "thread-1")
+    create_calls = 0
+
+    def unexpected_create(owner_id, discord_thread_id):
+        nonlocal create_calls
+        create_calls += 1
+        raise AssertionError("duplicate guard must run before persistence")
+
+    monkeypatch.setattr(sessions.repo, "create_session", unexpected_create)
+
+    with pytest.raises(AISessionConflictError, match="already linked"):
+        sessions.create_session(owner, "thread-1")
+
+    assert create_calls == 0
+    assert sessions.get_session_by_thread_id("thread-1") == original
 
 
 def test_ai_session_service_rejects_closed_session_and_bounds_history(ai_services):
@@ -347,7 +406,44 @@ def test_ai_session_service_rejects_busy_requests(ai_services):
     asyncio.run(runner())
 
 
+def test_ai_session_service_releases_busy_lock_after_provider_error(ai_services):
+    owner = Actor("owner", Role.MEMBER)
+
+    class FailingOnceProvider(RecordingProvider):
+        async def generate(self, *, system_instruction, messages, context_records, timeout_seconds):
+            self.called += 1
+            if self.called == 1:
+                raise AIProviderError("provider failed")
+            return AIProviderResponse(text="recovered")
+
+    provider = FailingOnceProvider()
+    ai_services["ai"].provider = provider
+    session = ai_services["sessions"].create_session(owner, "thread-1")
+
+    async def runner():
+        with pytest.raises(AIProviderError):
+            await ai_services["sessions"].handle_message(
+                actor=owner,
+                session_id=session["id"],
+                discord_thread_id="thread-1",
+                content="first",
+            )
+        answer = await ai_services["sessions"].handle_message(
+            actor=owner,
+            session_id=session["id"],
+            discord_thread_id="thread-1",
+            content="second",
+        )
+        assert answer.content == "recovered"
+
+    asyncio.run(runner())
+    assert provider.called == 2
+
+
 def test_bot_safe_ai_messages_are_concise():
     bot = CSEHQBot(SimpleNamespace())
     assert bot._safe_ai_error_message(AIProviderError("boom")) == "AI provider is unavailable right now. Please try again later."
     assert bot._safe_ai_error_message(AISessionBusyError("busy")) == "This AI session is busy. Try again in a moment."
+    assert bot._safe_ai_error_message(AISessionConflictError("conflict")) == (
+        "This Discord thread is already linked to another AI session."
+    )

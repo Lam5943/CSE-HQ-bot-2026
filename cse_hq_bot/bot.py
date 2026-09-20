@@ -12,6 +12,7 @@ from cse_hq_bot.errors import (
     AIRateLimitError,
     AISessionBusyError,
     AISessionClosedError,
+    AISessionConflictError,
     AITimeoutError,
     CSEHQError,
     InvalidInputError,
@@ -363,6 +364,8 @@ class CSEHQBot(commands.Bot):
             return "This AI session is busy. Try again in a moment."
         if isinstance(error, AISessionClosedError):
             return "This AI session is closed. Start a new session from /ai."
+        if isinstance(error, AISessionConflictError):
+            return "This Discord thread is already linked to another AI session."
         if isinstance(error, PermissionDeniedError):
             return "You are not allowed to access this AI session."
         if isinstance(error, AIConfigurationError):
