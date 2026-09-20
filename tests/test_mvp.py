@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from cse_hq_bot.ai.fake_provider import FakeAIProvider
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import PermissionDeniedError
 from cse_hq_bot.models import Actor, Role
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.repositories.project_repository import ProjectRepository
@@ -13,7 +13,6 @@ from cse_hq_bot.repositories.task_repository import TaskRepository
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.collab_service import CollaborationService
 from cse_hq_bot.services.project_service import ProjectService
-from cse_hq_bot.services.qa_service import QAService
 from cse_hq_bot.services.report_service import ReportService
 from cse_hq_bot.services.task_service import TaskService
 
@@ -29,12 +28,31 @@ def services(tmp_path: Path):
     bug_repo = BugRepository(db)
     collab_repo = CollaborationRepository(db)
 
+    activity_repo = ActivityRepository(db)
     project_service = ProjectService(project_repo)
-    task_service = TaskService(task_repo)
-    bug_service = BugService(bug_repo)
-    collab_service = CollaborationService(collab_repo)
-    report_service = ReportService(project_service, task_service, bug_service, collab_service)
-    qa_service = QAService(FakeAIProvider(), project_repo, task_repo, bug_repo)
+    task_service = TaskService(task_repo, activity_repo)
+    bug_service = BugService(bug_repo, activity_repo)
+    collab_service = CollaborationService(collab_repo, activity_repo)
+    report_service = ReportService(project_service, task_service, bug_service, collab_service.standup_service)
+    from cse_hq_bot.ai.fake_provider import FakeAIProvider
+    from cse_hq_bot.services.activity_service import ActivityService
+    from cse_hq_bot.services.ai_service import AIService
+    from cse_hq_bot.services.project_context_service import ProjectContextService
+    from cse_hq_bot.services.prompt_builder import PromptBuilder
+    from cse_hq_bot.services.qa_service import QAService
+    from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
+
+    context_service = ProjectContextService(
+        project_service,
+        task_service,
+        bug_service,
+        collab_service.meeting_service,
+        collab_service.decision_service,
+        collab_service.standup_service,
+        ActivityService(activity_repo),
+    )
+    ai_service = AIService(FakeAIProvider(), context_service, RetrievalPlanner(), PromptBuilder(), max_context_items=5, request_timeout=5)
+    qa_service = QAService(ai_service)
 
     return {
         "project": project_service,
@@ -109,5 +127,5 @@ def test_meetings_standups_reporting_and_qa(services):
     assert "Standups: 1 updates" in report
 
     answer = services["qa"].ask("What is the project status?")
-    assert "Prompt Context" in answer
-    assert "You are a project assistant" in answer
+    assert "System Instruction" in answer
+    assert "read-only" in answer.lower()

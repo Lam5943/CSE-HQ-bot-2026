@@ -1,6 +1,35 @@
+from dataclasses import dataclass
 from typing import Protocol
 
 
+@dataclass(frozen=True)
+class AIMessage:
+    role: str
+    content: str
+
+
+@dataclass(frozen=True)
+class RetrievedContextRecord:
+    source_type: str
+    source_id: str
+    title: str
+    content: str
+    timestamp: str | None
+    retrieval_reason: str
+
+
+@dataclass(frozen=True)
+class AIProviderResponse:
+    text: str
+
+
 class AIProvider(Protocol):
-    def answer(self, prompt: str) -> str:
-        """Return an answer for a grounded prompt."""
+    async def generate(
+        self,
+        *,
+        system_instruction: str,
+        messages: list[AIMessage],
+        context_records: list[RetrievedContextRecord],
+        timeout_seconds: int,
+    ) -> AIProviderResponse:
+        """Return an answer for a bounded, grounded prompt."""

@@ -20,3 +20,27 @@ class InvalidInputError(CSEHQError):
 
 class AIProviderError(CSEHQError):
     """Raised when AI provider operations fail."""
+
+
+class AIConfigurationError(AIProviderError):
+    """Raised when AI provider configuration is invalid."""
+
+
+class AIRateLimitError(AIProviderError):
+    """Raised when the AI provider rejects a request due to rate limits."""
+
+
+class AITimeoutError(AIProviderError):
+    """Raised when the AI provider times out."""
+
+
+class AIMalformedResponseError(AIProviderError):
+    """Raised when the AI provider returns an unusable response."""
+
+
+class AISessionClosedError(CSEHQError):
+    """Raised when an AI session is closed."""
+
+
+class AISessionBusyError(CSEHQError):
+    """Raised when an AI session already has an in-flight request."""

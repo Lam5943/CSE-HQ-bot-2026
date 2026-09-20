@@ -104,6 +104,26 @@ class Database:
                     metadata TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS ai_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_id TEXT NOT NULL,
+                    discord_thread_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_active_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    closed_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source_refs TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES ai_sessions(id)
+                );
                 """
             )
             self._ensure_project_settings_columns(conn)
@@ -128,6 +148,15 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_activities_actor ON activities(actor_id, created_at, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_sessions_owner ON ai_sessions(owner_id, last_active_at, id)"
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_sessions_thread ON ai_sessions(discord_thread_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, id)"
             )
 
     def _ensure_project_settings_columns(self, conn: sqlite3.Connection) -> None:
