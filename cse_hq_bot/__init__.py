@@ -1,0 +1,1 @@
+"""CSE-HQ bot package."""
