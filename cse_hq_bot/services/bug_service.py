@@ -1,10 +1,31 @@
-from cse_hq_bot.errors import CSEHQError, PermissionDeniedError
+from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
 from cse_hq_bot.models import Actor, BugStatus, Role
 from cse_hq_bot.permissions import ensure_can_modify_bug
 from cse_hq_bot.repositories.bug_repository import BugRepository
 
 
 class BugService:
+    _TRANSITIONS: dict[str, set[str]] = {
+        BugStatus.OPEN.value: {
+            BugStatus.TRIAGED.value,
+            BugStatus.IN_PROGRESS.value,
+            BugStatus.RESOLVED.value,
+        },
+        BugStatus.TRIAGED.value: {
+            BugStatus.IN_PROGRESS.value,
+            BugStatus.RESOLVED.value,
+            BugStatus.OPEN.value,
+        },
+        BugStatus.IN_PROGRESS.value: {
+            BugStatus.RESOLVED.value,
+            BugStatus.TRIAGED.value,
+            BugStatus.OPEN.value,
+        },
+        BugStatus.RESOLVED.value: {
+            BugStatus.OPEN.value,
+        },
+    }
+
     def __init__(self, repo: BugRepository):
         self.repo = repo
 
@@ -88,29 +109,8 @@ class BugService:
         }
 
     def _ensure_transition(self, current_status: str, target_status: str) -> None:
-        transitions = {
-            BugStatus.OPEN.value: {
-                BugStatus.TRIAGED.value,
-                BugStatus.IN_PROGRESS.value,
-                BugStatus.RESOLVED.value,
-            },
-            BugStatus.TRIAGED.value: {
-                BugStatus.IN_PROGRESS.value,
-                BugStatus.RESOLVED.value,
-                BugStatus.OPEN.value,
-            },
-            BugStatus.IN_PROGRESS.value: {
-                BugStatus.RESOLVED.value,
-                BugStatus.TRIAGED.value,
-                BugStatus.OPEN.value,
-            },
-            BugStatus.RESOLVED.value: {
-                BugStatus.OPEN.value,
-                BugStatus.IN_PROGRESS.value,
-            },
-        }
-        if target_status not in transitions.get(current_status, set()):
-            raise CSEHQError(f"Invalid bug status transition: {current_status} -> {target_status}")
+        if target_status not in self._TRANSITIONS.get(current_status, set()):
+            raise InvalidTransitionError(f"Invalid bug status transition: {current_status} -> {target_status}")
 
     def update_bug(self, actor: Actor, bug_id: int, **fields: object) -> None:
         bug = self.repo.get(bug_id)
@@ -131,7 +131,11 @@ class BugService:
         self.update_bug(actor, bug_id, assignee_id=assignee_id)
 
     def transition_status(self, actor: Actor, bug_id: int, status: str) -> None:
-        self.update_bug(actor, bug_id, status=BugStatus(status).value)
+        bug = self.repo.get(bug_id)
+        target_status = BugStatus(status).value
+        self._ensure_transition(bug["status"], target_status)
+        ensure_can_modify_bug(actor, bug.get("assignee_id"), bug["created_by"])
+        self.repo.update(bug_id, {"status": target_status})
 
     def resolve_bug(self, actor: Actor, bug_id: int) -> None:
         self.transition_status(actor, bug_id, BugStatus.RESOLVED.value)
