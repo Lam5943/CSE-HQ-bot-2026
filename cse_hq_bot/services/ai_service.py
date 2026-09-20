@@ -11,11 +11,21 @@ from cse_hq_bot.services.retrieval_planner import RetrievalPlan, RetrievalPlanne
 
 SOURCE_ID_PATTERN = re.compile(r"\b(?:TASK|BUG|MEETING|DEC|STANDUP)-\d+\b")
 MUTATION_PATTERN = re.compile(
-    r"\b(?:complete|assign|update|change|create|delete|resolve|close|reopen|start|block|record|submit|schedule|cancel)\b",
+    r"\b(?:complete|assign|update|change|create|delete|edit|resolve|close|reopen|start|block|record|submit|schedule|cancel)\b",
     re.IGNORECASE,
 )
 PROJECT_MUTATION_TARGET_PATTERN = re.compile(
     r"\b(?:task|bug|meeting|decision|standup|project)\b",
+    re.IGNORECASE,
+)
+INFORMATIONAL_REQUEST_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"how\s+(?:do|can|should|would)\s+(?:i|we|you)\b|"
+    r"how\s+to\b|"
+    r"what\s+(?:would|will|happens?)\b|"
+    r"who\b|why\b|when\b|where\b|"
+    r"explain\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -85,6 +95,8 @@ class AIService:
         )
 
     def _is_mutation_request(self, question: str) -> bool:
+        if INFORMATIONAL_REQUEST_PATTERN.search(question):
+            return False
         return bool(MUTATION_PATTERN.search(question) and PROJECT_MUTATION_TARGET_PATTERN.search(question))
 
     def _retrieve_records(self, actor: Actor, plan: RetrievalPlan) -> list[RetrievedContextRecord]:

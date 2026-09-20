@@ -10,19 +10,24 @@ from cse_hq_bot.errors import (
 )
 
 try:
-    import google.generativeai as genai
-except Exception:  # pragma: no cover
+    from google import genai
+    from google.genai import types
+except ImportError:  # pragma: no cover
     genai = None
+    types = None
 
 
 class GeminiProvider:
     def __init__(self, api_key: str | None, model_name: str):
         if not api_key:
             raise AIConfigurationError("GEMINI_API_KEY is required when AI_PROVIDER=gemini")
-        if genai is None:
-            raise AIConfigurationError("google-generativeai package is not available")
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        if genai is None or types is None:
+            raise AIConfigurationError("google-genai package is not available")
+        self.model_name = model_name
+        try:
+            self.client = genai.Client(api_key=api_key)
+        except Exception as exc:  # pragma: no cover - SDK boundary
+            raise self._normalize_error(exc) from exc
 
     async def generate(
         self,
@@ -35,17 +40,45 @@ class GeminiProvider:
         prompt = self._build_prompt(system_instruction, messages, context_records)
         try:
             response = await asyncio.wait_for(
-                asyncio.to_thread(self.model.generate_content, prompt),
+                self.client.aio.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        http_options=types.HttpOptions(timeout=timeout_seconds * 1000),
+                    ),
+                ),
                 timeout=timeout_seconds,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise AITimeoutError("The AI provider timed out") from exc
-        except Exception as exc:  # pragma: no cover - depends on SDK/runtime
+        except Exception as exc:  # pragma: no cover - SDK boundary
             raise self._normalize_error(exc) from exc
-        text = (getattr(response, "text", "") or "").strip()
-        if not text:
+        return AIProviderResponse(text=self._extract_text(response))
+
+    def _extract_text(self, response: object) -> str:
+        if response is None:
             raise AIMalformedResponseError("The AI provider returned an empty response")
-        return AIProviderResponse(text=text)
+        try:
+            direct_text = getattr(response, "text", None)
+        except Exception:  # noqa: BLE001 - SDK response properties may raise arbitrary errors
+            direct_text = None
+        if isinstance(direct_text, str) and direct_text.strip():
+            return direct_text.strip()
+
+        parts_text: list[str] = []
+        try:
+            candidates = getattr(response, "candidates", None) or []
+            for candidate in candidates:
+                content = getattr(candidate, "content", None)
+                for part in (getattr(content, "parts", None) or []):
+                    part_text = getattr(part, "text", None)
+                    if isinstance(part_text, str) and part_text.strip():
+                        parts_text.append(part_text.strip())
+        except Exception:  # noqa: BLE001 - malformed SDK response shapes are normalized
+            parts_text = []
+        if parts_text:
+            return "\n".join(parts_text)
+        raise AIMalformedResponseError("The AI provider returned an empty or malformed response")
 
     def _build_prompt(
         self,
@@ -71,10 +104,11 @@ class GeminiProvider:
     def _normalize_error(self, exc: Exception) -> AIProviderError:
         message = str(exc).lower()
         name = exc.__class__.__name__.lower()
-        if "api key" in message or "authentication" in message or "permission denied" in message:
+        code = getattr(exc, "code", None)
+        if code in {401, 403} or "api key" in message or "authentication" in message or "permission denied" in message:
             return AIConfigurationError("Gemini configuration is invalid")
-        if "429" in message or "rate" in message or "resourceexhausted" in name:
+        if code == 429 or "429" in message or "rate" in message or "resourceexhausted" in name:
             return AIRateLimitError("Gemini rate limit exceeded")
-        if "timeout" in message or "deadline" in message:
+        if "timeout" in message or "deadline" in message or "readtimeout" in name:
             return AITimeoutError("Gemini request timed out")
         return AIProviderError("Gemini request failed")

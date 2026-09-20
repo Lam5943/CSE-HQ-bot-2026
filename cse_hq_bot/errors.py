@@ -44,3 +44,7 @@ class AISessionClosedError(CSEHQError):
 
 class AISessionBusyError(CSEHQError):
     """Raised when an AI session already has an in-flight request."""
+
+
+class AISessionConflictError(CSEHQError):
+    """Raised when a Discord thread is already bound to an AI session."""

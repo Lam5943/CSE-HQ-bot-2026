@@ -12,6 +12,7 @@ from cse_hq_bot.errors import (
     AIRateLimitError,
     AISessionBusyError,
     AISessionClosedError,
+    AISessionConflictError,
     AITimeoutError,
     CSEHQError,
     InvalidInputError,
@@ -22,8 +23,8 @@ from cse_hq_bot.logging_config import configure_logging
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.ui import (
     BugsView,
-    DecisionsView,
     DashboardView,
+    DecisionsView,
     MeetingsView,
     StandupView,
     TasksView,
@@ -31,8 +32,8 @@ from cse_hq_bot.ui import (
     build_ai_session_intro_embed,
     build_ai_sessions_embed,
     build_bugs_embed,
-    build_decisions_embed,
     build_dashboard_embed,
+    build_decisions_embed,
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
@@ -57,6 +58,8 @@ class CSEHQBot(commands.Bot):
         intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
         self.container = container
+        self.enable_message_content = enable_message_content
+        self._message_content_guidance_sent: set[tuple[str, str]] = set()
 
     async def setup_hook(self) -> None:
         @app_commands.command(name="dashboard", description="Show project dashboard")
@@ -237,11 +240,22 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(ai)
 
     async def on_message(self, message: discord.Message) -> None:  # pragma: no cover - exercised via unit helpers
-        if message.author.bot or not message.content.strip():
+        if message.author.bot:
             return
         session = self.container.ai_session_service.get_session_by_thread_id(str(message.channel.id))
         if not session:
             await self.process_commands(message)
+            return
+        if not self.enable_message_content:
+            guidance_key = (str(message.channel.id), str(message.author.id))
+            if guidance_key not in self._message_content_guidance_sent:
+                self._message_content_guidance_sent.add(guidance_key)
+                await message.channel.send(
+                    "Natural AI session chat is disabled in the current bot configuration. "
+                    "Enable AI_ENABLE_MESSAGE_CONTENT and the Discord Message Content intent to use it."
+                )
+            return
+        if not message.content.strip():
             return
         actor = resolve_actor_from_user(message.author)
         started = time.monotonic()
@@ -363,6 +377,8 @@ class CSEHQBot(commands.Bot):
             return "This AI session is busy. Try again in a moment."
         if isinstance(error, AISessionClosedError):
             return "This AI session is closed. Start a new session from /ai."
+        if isinstance(error, AISessionConflictError):
+            return "This Discord thread is already linked to another AI session."
         if isinstance(error, PermissionDeniedError):
             return "You are not allowed to access this AI session."
         if isinstance(error, AIConfigurationError):

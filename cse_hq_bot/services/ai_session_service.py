@@ -1,6 +1,11 @@
 import asyncio
 
-from cse_hq_bot.errors import AISessionBusyError, AISessionClosedError, PermissionDeniedError
+from cse_hq_bot.errors import (
+    AISessionBusyError,
+    AISessionClosedError,
+    AISessionConflictError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.models import Actor
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
@@ -21,6 +26,10 @@ class AISessionService:
         self._busy_state_lock = asyncio.Lock()
 
     def create_session(self, actor: Actor, discord_thread_id: str) -> dict:
+        if self.repo.get_session_by_thread_id(discord_thread_id) is not None:
+            raise AISessionConflictError(
+                "This Discord thread is already linked to another AI session"
+            )
         session_id = self.repo.create_session(actor.user_id, discord_thread_id)
         return self.repo.get_session(session_id)
 
