@@ -206,7 +206,29 @@ The current MVP exposes these Discord application commands:
 
 ### `/dashboard`
 
-Displays the project name and description, plus the number of open tasks and bugs. The response is private to the user who invoked the command.
+Opens a private interactive dashboard Embed with:
+
+- Project overview (name, description, goal, phase, sprint, deadline, status)
+- Task and bug summary metrics
+- Refresh button to reload the latest project data
+- **Manage Dashboard** button (Leader/Co-Lead only through service-layer permissions) to update project management fields
+
+### `/tasks`
+
+Opens a private task-management panel:
+
+- Task list in an Embed
+- Refresh button
+- **Create Task** modal (title, description, priority, assignee user ID, deadline) backed by `TaskService`
+
+### `/bugs`
+
+Opens a private bug-tracker panel:
+
+- Bug list in an Embed
+- Filter selector for open/all bugs
+- Refresh button
+- **Report Bug** modal (title, description, severity, assignee user ID) backed by `BugService`
 
 ### `/weekly_report`
 

@@ -77,3 +77,22 @@ class Database:
                 );
                 """
             )
+            self._ensure_project_settings_columns(conn)
+
+    def _ensure_project_settings_columns(self, conn: sqlite3.Connection) -> None:
+        expected_columns = {
+            "goal": "",
+            "phase": "",
+            "sprint": "",
+            "deadline": "",
+            "status": "",
+        }
+        existing_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_settings)").fetchall()
+        }
+        for column_name, default_value in expected_columns.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(
+                f"ALTER TABLE project_settings ADD COLUMN {column_name} TEXT NOT NULL DEFAULT '{default_value}'"
+            )
