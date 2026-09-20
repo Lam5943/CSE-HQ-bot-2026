@@ -40,12 +40,13 @@ class CollaborationService:
         )
 
     def submit_standup(self, actor, update_text: str, blockers: str = "") -> int:
-        return self.standup_service.repo.create_standup(
-            user_id=actor.user_id,
-            entry_date=date.today().isoformat(),
+        return self.standup_service.submit_standup(
+            actor,
             previous="",
             current=update_text,
-            blockers=blockers.strip(),
+            blockers=blockers,
+            entry_date=date.today().isoformat(),
+            allow_empty_previous=True,
         )
 
     def weekly_standup_summary(self, days: int = 7) -> dict:

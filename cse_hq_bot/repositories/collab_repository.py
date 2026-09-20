@@ -93,16 +93,7 @@ class CollaborationRepository:
                 """,
                 (meeting_id, author_id, content),
             )
-            note_id = int(cur.lastrowid)
-            conn.execute(
-                """
-                UPDATE meetings
-                SET notes = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (content, meeting_id),
-            )
-            return note_id
+            return int(cur.lastrowid)
 
     def list_meeting_notes(self, meeting_id: int) -> list[dict]:
         self.get_meeting(meeting_id)

@@ -292,9 +292,9 @@ def build_meeting_detail_embed(
     )
     actions: list[str] = ["Refresh", "Back"]
     if can_manage and meeting["status"] == MeetingStatus.SCHEDULED.value:
-        actions.extend(["Start", "Cancel", "Participants"])
+        actions.extend(["Start", "Cancel", "Add Participant", "Remove Participant"])
     if can_manage and meeting["status"] == MeetingStatus.IN_PROGRESS.value:
-        actions.extend(["Complete", "Participants", "Record Decision"])
+        actions.extend(["Complete", "Add Participant", "Remove Participant", "Record Decision"])
     if can_manage and meeting["status"] == MeetingStatus.COMPLETED.value:
         actions.append("Record Decision")
     if can_add_note:
@@ -1772,6 +1772,10 @@ class MeetingActionTaskModal(discord.ui.Modal, title="Create Action Task"):
                 f"Task #{task_id} created from this meeting.",
                 ephemeral=True,
             )
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except PermissionDeniedError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
         except ValueError:
             await interaction.response.send_message("Priority must be an integer from 1 to 5.", ephemeral=True)
         except NotFoundError:

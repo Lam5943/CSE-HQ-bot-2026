@@ -16,11 +16,17 @@ class StandupService:
         current: str,
         blockers: str = "",
         entry_date: str | None = None,
+        *,
+        allow_empty_previous: bool = False,
     ) -> int:
         return self.repo.create_standup(
             user_id=actor.user_id,
             entry_date=self._normalize_date(entry_date),
-            previous=self._require_text(previous, "Previous update is required"),
+            previous=(
+                previous.strip()
+                if allow_empty_previous
+                else self._require_text(previous, "Previous update is required")
+            ),
             current=self._require_text(current, "Current update is required"),
             blockers=blockers.strip(),
         )
