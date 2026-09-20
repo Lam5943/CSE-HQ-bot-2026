@@ -2,6 +2,7 @@ from datetime import datetime
 
 from cse_hq_bot.models import ProjectDashboard
 from cse_hq_bot.ui import (
+    _pagination_state,
     build_bug_detail_embed,
     build_bugs_embed,
     build_dashboard_embed,
@@ -53,6 +54,25 @@ def test_build_tasks_embed_paginates_and_shows_scope():
     assert embed.fields[1].value == "status:todo"
     assert "Task 9" in (embed.description or "")
     assert embed.footer.text == "Page 2/2 • Showing 5/13 tasks"
+
+
+def test_build_bugs_embed_paginates_and_shows_filter_metadata():
+    bugs = [
+        {"id": index, "status": "open", "severity": 3, "title": f"Bug {index}", "description": ""}
+        for index in range(1, 12)
+    ]
+    embed = build_bugs_embed(bugs, show_all=True, page=1, filters_label="severity:3")
+    assert embed.fields[0].name == "Filters"
+    assert embed.fields[0].value == "severity:3"
+    assert "Bug 9" in (embed.description or "")
+    assert embed.footer.text == "Page 2/2 • Showing 3/11 bugs"
+
+
+def test_pagination_state_handles_empty_bounds_and_stale_pages():
+    assert _pagination_state(0, 0) == (0, 1, True, True)
+    assert _pagination_state(12, 0) == (0, 2, True, False)
+    assert _pagination_state(12, 1) == (1, 2, False, True)
+    assert _pagination_state(12, 50) == (1, 2, False, True)
 
 
 def test_build_detail_embeds_show_action_visibility():

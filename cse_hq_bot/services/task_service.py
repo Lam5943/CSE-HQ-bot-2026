@@ -1,10 +1,29 @@
-from cse_hq_bot.errors import CSEHQError, PermissionDeniedError
+from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
 from cse_hq_bot.models import Actor, Role, TaskStatus
 from cse_hq_bot.permissions import ensure_can_modify_task
 from cse_hq_bot.repositories.task_repository import TaskRepository
 
 
 class TaskService:
+    _TRANSITIONS: dict[str, set[str]] = {
+        TaskStatus.TODO.value: {
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.BLOCKED.value,
+        },
+        TaskStatus.IN_PROGRESS.value: {
+            TaskStatus.BLOCKED.value,
+            TaskStatus.DONE.value,
+            TaskStatus.TODO.value,
+        },
+        TaskStatus.BLOCKED.value: {
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.TODO.value,
+        },
+        TaskStatus.DONE.value: {
+            TaskStatus.TODO.value,
+        },
+    }
+
     def __init__(self, repo: TaskRepository):
         self.repo = repo
 
@@ -91,29 +110,10 @@ class TaskService:
         }
 
     def _ensure_transition(self, current_status: str, target_status: str) -> None:
-        transitions = {
-            TaskStatus.TODO.value: {
-                TaskStatus.IN_PROGRESS.value,
-                TaskStatus.BLOCKED.value,
-                TaskStatus.DONE.value,
-            },
-            TaskStatus.IN_PROGRESS.value: {
-                TaskStatus.BLOCKED.value,
-                TaskStatus.DONE.value,
-                TaskStatus.TODO.value,
-            },
-            TaskStatus.BLOCKED.value: {
-                TaskStatus.IN_PROGRESS.value,
-                TaskStatus.TODO.value,
-                TaskStatus.DONE.value,
-            },
-            TaskStatus.DONE.value: {
-                TaskStatus.TODO.value,
-                TaskStatus.IN_PROGRESS.value,
-            },
-        }
-        if target_status not in transitions.get(current_status, set()):
-            raise CSEHQError(f"Invalid task status transition: {current_status} -> {target_status}")
+        if target_status not in self._TRANSITIONS.get(current_status, set()):
+            raise InvalidTransitionError(
+                f"Invalid task status transition: {current_status} -> {target_status}"
+            )
 
     def update_task(self, actor: Actor, task_id: int, **fields: object) -> None:
         task = self.repo.get(task_id)

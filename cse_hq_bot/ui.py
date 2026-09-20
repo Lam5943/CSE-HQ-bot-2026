@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import discord
 
-from cse_hq_bot.errors import CSEHQError, NotFoundError, PermissionDeniedError
+from cse_hq_bot.errors import CSEHQError, InvalidTransitionError, NotFoundError, PermissionDeniedError
 from cse_hq_bot.models import Actor, BugStatus, ProjectDashboard, TaskStatus
 from cse_hq_bot.permissions import ensure_can_modify_bug, ensure_can_modify_task
 from cse_hq_bot.services.bug_service import BugService
@@ -13,6 +13,8 @@ from cse_hq_bot.services.task_service import TaskService
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 8
+STALE_TASK_MESSAGE = "This task is no longer available in its previous state. Please refresh the task list."
+STALE_BUG_MESSAGE = "This bug is no longer available in its previous state. Please refresh the bug list."
 
 
 def _trim(value: str, *, default: str = "N/A") -> str:
@@ -41,13 +43,22 @@ def _truncate(value: str, limit: int = 80) -> str:
 
 
 def _page_slice(items: list[dict], page: int, page_size: int = PAGE_SIZE) -> tuple[list[dict], int, int]:
+    safe_page, total_pages, _, _ = _pagination_state(len(items), page, page_size)
     if not items:
         return [], 0, 1
-    max_page = max((len(items) - 1) // page_size, 0)
-    safe_page = max(0, min(page, max_page))
     start = safe_page * page_size
     end = start + page_size
-    return items[start:end], safe_page, max_page + 1
+    return items[start:end], safe_page, total_pages
+
+
+def _pagination_state(
+    total_items: int, page: int, page_size: int = PAGE_SIZE
+) -> tuple[int, int, bool, bool]:
+    if total_items <= 0:
+        return 0, 1, True, True
+    max_page = max((total_items - 1) // page_size, 0)
+    safe_page = max(0, min(page, max_page))
+    return safe_page, max_page + 1, safe_page <= 0, safe_page >= max_page
 
 
 def _status_badge(status: str) -> str:
@@ -683,6 +694,7 @@ class TasksView(OwnedView):
         self.selected_task_id: int | None = None
         self.task_select = TaskSelect(self)
         self.add_item(self.task_select)
+        self._sync_pagination_buttons(total_pages=1)
 
     def _current_filters_label(self) -> str:
         pairs = [f"{key}:{value}" for key, value in self.filters.items() if value not in (None, "")]
@@ -711,11 +723,17 @@ class TasksView(OwnedView):
         except PermissionDeniedError:
             return False
 
+    def _sync_pagination_buttons(self, *, total_pages: int) -> None:
+        self.previous_page.disabled = self.page <= 0
+        self.next_page.disabled = self.page >= max(total_pages - 1, 0)
+
     async def render_list(self, interaction: discord.Interaction, notice: str | None = None) -> None:
         actor = self.actor_resolver(interaction)
         try:
             tasks = self._load_tasks(actor)
+            self.page, total_pages, _, _ = _pagination_state(len(tasks), self.page)
             stats = self.task_service.task_statistics(actor)
+            self._sync_pagination_buttons(total_pages=total_pages)
             self.task_select.sync_options(tasks)
             embed = build_tasks_embed(
                 tasks,
@@ -849,11 +867,12 @@ class TasksView(OwnedView):
             await self.render_detail(interaction, self.selected_task_id, notice="Task moved to In Progress.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this task.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Start task failed", exc_info=error)
-            await interaction.response.send_message(
-                "Task action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_TASK_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Start task failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this task right now.", ephemeral=True)
 
     @discord.ui.button(label="Block", style=discord.ButtonStyle.secondary, row=3)
     async def block_task(  # type: ignore[override]
@@ -868,11 +887,12 @@ class TasksView(OwnedView):
             await self.render_detail(interaction, self.selected_task_id, notice="Task marked as Blocked.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this task.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Block task failed", exc_info=error)
-            await interaction.response.send_message(
-                "Task action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_TASK_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Block task failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this task right now.", ephemeral=True)
 
     @discord.ui.button(label="Reopen", style=discord.ButtonStyle.secondary, row=3)
     async def reopen_task(  # type: ignore[override]
@@ -887,11 +907,12 @@ class TasksView(OwnedView):
             await self.render_detail(interaction, self.selected_task_id, notice="Task reopened.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this task.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Reopen task failed", exc_info=error)
-            await interaction.response.send_message(
-                "Task action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_TASK_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Reopen task failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this task right now.", ephemeral=True)
 
     @discord.ui.button(label="Complete", style=discord.ButtonStyle.success, row=3)
     async def complete_task(  # type: ignore[override]
@@ -906,11 +927,12 @@ class TasksView(OwnedView):
             await self.render_detail(interaction, self.selected_task_id, notice="Task completed.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this task.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Complete task failed", exc_info=error)
-            await interaction.response.send_message(
-                "Task action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_TASK_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Complete task failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this task right now.", ephemeral=True)
 
     @discord.ui.button(label="Assign", style=discord.ButtonStyle.primary, row=4)
     async def assign_task(  # type: ignore[override]
@@ -991,6 +1013,7 @@ class BugsView(OwnedView):
         self.selected_bug_id: int | None = None
         self.bug_select = BugSelect(self)
         self.add_item(self.bug_select)
+        self._sync_pagination_buttons(total_pages=1)
 
     def _current_filters_label(self) -> str:
         pairs = [f"{key}:{value}" for key, value in self.filters.items() if value not in (None, "")]
@@ -1018,11 +1041,17 @@ class BugsView(OwnedView):
         except PermissionDeniedError:
             return False
 
+    def _sync_pagination_buttons(self, *, total_pages: int) -> None:
+        self.previous_page.disabled = self.page <= 0
+        self.next_page.disabled = self.page >= max(total_pages - 1, 0)
+
     async def render_list(self, interaction: discord.Interaction, notice: str | None = None) -> None:
         actor = self.actor_resolver(interaction)
         try:
             bugs = self._load_bugs(actor)
+            self.page, total_pages, _, _ = _pagination_state(len(bugs), self.page)
             stats = self.bug_service.bug_statistics(actor)
+            self._sync_pagination_buttons(total_pages=total_pages)
             self.bug_select.sync_options(bugs)
             embed = build_bugs_embed(
                 bugs,
@@ -1154,11 +1183,12 @@ class BugsView(OwnedView):
             await self.render_detail(interaction, self.selected_bug_id, notice="Bug moved to In Progress.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this bug.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Bug status change failed", exc_info=error)
-            await interaction.response.send_message(
-                "Bug action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_BUG_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Bug status change failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this bug right now.", ephemeral=True)
 
     @discord.ui.button(label="Triaged", style=discord.ButtonStyle.secondary, row=3)
     async def mark_triaged(  # type: ignore[override]
@@ -1173,11 +1203,12 @@ class BugsView(OwnedView):
             await self.render_detail(interaction, self.selected_bug_id, notice="Bug marked as Triaged.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this bug.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Bug status change failed", exc_info=error)
-            await interaction.response.send_message(
-                "Bug action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_BUG_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Bug status change failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this bug right now.", ephemeral=True)
 
     @discord.ui.button(label="Resolve", style=discord.ButtonStyle.success, row=3)
     async def resolve_bug(  # type: ignore[override]
@@ -1192,11 +1223,12 @@ class BugsView(OwnedView):
             await self.render_detail(interaction, self.selected_bug_id, notice="Bug resolved.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this bug.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Resolve bug failed", exc_info=error)
-            await interaction.response.send_message(
-                "Bug action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_BUG_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Resolve bug failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this bug right now.", ephemeral=True)
 
     @discord.ui.button(label="Reopen", style=discord.ButtonStyle.secondary, row=3)
     async def reopen_bug(  # type: ignore[override]
@@ -1211,11 +1243,12 @@ class BugsView(OwnedView):
             await self.render_detail(interaction, self.selected_bug_id, notice="Bug reopened.")
         except PermissionDeniedError:
             await interaction.response.send_message("You are not allowed to modify this bug.", ephemeral=True)
-        except (NotFoundError, CSEHQError) as error:
+        except (NotFoundError, InvalidTransitionError) as error:
             logger.exception("Reopen bug failed", exc_info=error)
-            await interaction.response.send_message(
-                "Bug action is no longer valid. Please refresh the list and try again.", ephemeral=True
-            )
+            await interaction.response.send_message(STALE_BUG_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Reopen bug failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this bug right now.", ephemeral=True)
 
     @discord.ui.button(label="Assign", style=discord.ButtonStyle.primary, row=4)
     async def assign_bug(  # type: ignore[override]
