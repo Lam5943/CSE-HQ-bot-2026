@@ -30,7 +30,9 @@ class AISessionService:
 
     def close_session(self, actor: Actor, session_id: int) -> None:
         session = self.repo.get_session(session_id)
-        self._validate_session_access(actor, session, session["discord_thread_id"])
+        self._validate_session_owner(actor, session)
+        if session["status"] != "ACTIVE":
+            return
         self.repo.close_session(session_id)
 
     def get_session_by_thread_id(self, discord_thread_id: str) -> dict | None:
@@ -72,7 +74,10 @@ class AISessionService:
     def _validate_session_access(self, actor: Actor, session: dict, discord_thread_id: str) -> None:
         if session["status"] != "ACTIVE":
             raise AISessionClosedError("This AI session is closed")
-        if session["owner_id"] != actor.user_id:
-            raise PermissionDeniedError("You are not allowed to access this AI session")
+        self._validate_session_owner(actor, session)
         if str(session["discord_thread_id"]) != str(discord_thread_id):
             raise PermissionDeniedError("This message was sent from the wrong AI session thread")
+
+    def _validate_session_owner(self, actor: Actor, session: dict) -> None:
+        if session["owner_id"] != actor.user_id:
+            raise PermissionDeniedError("You are not allowed to access this AI session")

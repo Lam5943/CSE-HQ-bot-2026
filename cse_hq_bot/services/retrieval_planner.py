@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import re
 
 
 @dataclass(frozen=True)
@@ -22,11 +23,9 @@ class RetrievalPlanner:
         if any(phrase in normalized for phrase in ("project overview", "project status", "overview", "overall status")):
             return RetrievalPlan(strategy="overview", query=question)
         if "meeting-" in normalized:
-            try:
-                meeting_id = int(normalized.split("meeting-")[1][:3])
-                return RetrievalPlan(strategy="meeting_context", query=question, meeting_id=meeting_id)
-            except ValueError:
-                pass
+            match = re.search(r"meeting-(\d+)", normalized)
+            if match:
+                return RetrievalPlan(strategy="meeting_context", query=question, meeting_id=int(match.group(1)))
         if "meeting" in normalized:
             return RetrievalPlan(strategy="meeting_lookup", query=question, domains=("meetings",))
         if any(phrase in normalized for phrase in ("this week", "recent activity", "what happened")):

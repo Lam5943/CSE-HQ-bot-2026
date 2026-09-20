@@ -52,7 +52,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
    cp .env.example .env
    ```
 
-5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` unless Gemini is configured. If you want natural AI session chat in Discord threads, also enable the Message Content intent for the bot in the Discord Developer Portal.
+5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` unless Gemini is configured. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal.
 
 ## Environment Variables
 
@@ -62,6 +62,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `DISCORD_GUILD_ID` | No | — | Optional Discord server ID for environment-specific configuration. |
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
+| `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. Leave disabled if you only need slash-command UI. |
 | `AI_PROVIDER` | No | `fake` | Set to `fake` for local development or `gemini` to use Gemini. |
 | `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name passed to the provider when `AI_PROVIDER=gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. The app fails fast with a configuration error if this is missing. |
@@ -76,6 +77,7 @@ DISCORD_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=your_discord_server_id
 DATABASE_PATH=./cse_hq.db
 LOG_LEVEL=INFO
+AI_ENABLE_MESSAGE_CONTENT=false
 AI_PROVIDER=fake
 AI_MODEL=gemini-1.5-flash
 GEMINI_API_KEY=

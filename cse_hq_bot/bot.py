@@ -50,9 +50,9 @@ ROLE_MAP = {
 
 
 class CSEHQBot(commands.Bot):
-    def __init__(self, container: ServiceContainer):
+    def __init__(self, container: ServiceContainer, *, enable_message_content: bool = False):
         intents = discord.Intents.default()
-        intents.message_content = True
+        intents.message_content = enable_message_content
         intents.guild_messages = True
         intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
@@ -342,7 +342,9 @@ class CSEHQBot(commands.Bot):
     async def _create_ai_thread(self, interaction: discord.Interaction):
         channel = interaction.channel
         if isinstance(channel, discord.Thread):
-            return channel
+            if channel.type == discord.ChannelType.private_thread:
+                return channel
+            raise InvalidInputError("Use /ai from a standard channel or an existing private AI thread")
         if channel is None or not hasattr(channel, "create_thread"):
             raise InvalidInputError("Use /ai in a server channel that supports private threads")
         try:
@@ -404,7 +406,7 @@ def main() -> None:  # pragma: no cover
     if not config.discord_token:
         raise RuntimeError("DISCORD_TOKEN is required to run the bot")
     container = ServiceContainer(config)
-    bot = CSEHQBot(container)
+    bot = CSEHQBot(container, enable_message_content=config.ai_enable_message_content)
     bot.run(config.discord_token)
 
 

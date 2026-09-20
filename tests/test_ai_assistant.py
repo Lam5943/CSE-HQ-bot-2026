@@ -168,6 +168,7 @@ def test_gemini_provider_requires_api_key():
         ("Give me a project overview", "overview"),
         ("What happened this week?", "recent_activity"),
         ("Why did we choose SQLite?", "decision_reasoning"),
+        ("What happened in MEETING-1234?", "meeting_context"),
         ("What happened in meeting 1?", "meeting_lookup"),
         ("Search docs", "fallback_search"),
     ],
@@ -300,6 +301,7 @@ def test_ai_session_service_rejects_closed_session_and_bounds_history(ai_service
     assert [message["content"] for message in history] == ["two", "three", "four"]
 
     ai_services["sessions"].repo.close_session(session["id"])
+    ai_services["sessions"].close_session(owner, session["id"])
     with pytest.raises(AISessionClosedError):
         asyncio.run(
             ai_services["sessions"].handle_message(
