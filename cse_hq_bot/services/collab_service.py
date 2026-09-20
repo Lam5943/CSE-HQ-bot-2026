@@ -1,6 +1,7 @@
 from datetime import date
 
 from cse_hq_bot.errors import InvalidInputError
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.meeting_service import MeetingService
@@ -8,10 +9,10 @@ from cse_hq_bot.services.standup_service import StandupService
 
 
 class CollaborationService:
-    def __init__(self, repo: CollaborationRepository):
-        self.meeting_service = MeetingService(repo)
-        self.decision_service = DecisionService(repo)
-        self.standup_service = StandupService(repo)
+    def __init__(self, repo: CollaborationRepository, activity_repo: ActivityRepository | None = None):
+        self.meeting_service = MeetingService(repo, activity_repo)
+        self.decision_service = DecisionService(repo, activity_repo)
+        self.standup_service = StandupService(repo, activity_repo)
 
     def schedule_meeting(self, actor, title: str, notes: str, meeting_date: str) -> int:
         scheduled_at = meeting_date

@@ -1,13 +1,20 @@
+import logging
 from datetime import date
 
 from cse_hq_bot.errors import InvalidInputError
+from cse_hq_bot.identifiers import standup_code
 from cse_hq_bot.models import Actor
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 
 
+logger = logging.getLogger(__name__)
+
+
 class StandupService:
-    def __init__(self, repo: CollaborationRepository):
+    def __init__(self, repo: CollaborationRepository, activity_repo: ActivityRepository | None = None):
         self.repo = repo
+        self.activity_repo = activity_repo
 
     def submit_standup(
         self,
@@ -19,9 +26,11 @@ class StandupService:
         *,
         allow_empty_previous: bool = False,
     ) -> int:
-        return self.repo.create_standup(
+        normalized_date = self._normalize_date(entry_date)
+        existing = self.repo.get_standup_for_user_date(actor.user_id, normalized_date)
+        standup_id = self.repo.create_standup(
             user_id=actor.user_id,
-            entry_date=self._normalize_date(entry_date),
+            entry_date=normalized_date,
             previous=(
                 previous.strip()
                 if allow_empty_previous
@@ -30,6 +39,18 @@ class StandupService:
             current=self._require_text(current, "Current update is required"),
             blockers=blockers.strip(),
         )
+        standup = self.repo.get_standup(standup_id)
+        self._append_activity(
+            "STANDUP_UPDATED" if existing else "STANDUP_SUBMITTED",
+            standup,
+            actor.user_id,
+            {
+                "row_id": standup_id,
+                "date": normalized_date,
+                "has_blockers": bool(standup.get("blockers")),
+            },
+        )
+        return standup_id
 
     def get_today(self, actor: Actor, entry_date: str | None = None) -> dict | None:
         return self.repo.get_standup_for_user_date(actor.user_id, self.resolve_entry_date(actor, entry_date))
@@ -56,6 +77,20 @@ class StandupService:
     def resolve_entry_date(self, actor: Actor, value: str | None) -> str:
         return self._normalize_date(value or self.today_for_actor(actor))
 
+    def get_standup(self, actor: Actor, standup_id: int) -> dict:
+        return self.repo.get_standup(standup_id)
+
+    def search_standups(self, actor: Actor, query: str, *, days: int = 30) -> list[dict]:
+        needle = self._require_text(query, "Search text is required").lower()
+        return [
+            standup
+            for standup in self.list_recent(actor, days=max(days, 1))
+            if any(
+                needle in (standup.get(field) or "").lower()
+                for field in ("user_id", "date", "previous", "current", "blockers")
+            )
+        ]
+
     def _normalize_date(self, value: str | None) -> str:
         clean_value = (value or date.today().isoformat()).strip()
         try:
@@ -68,3 +103,20 @@ class StandupService:
         if not clean_value:
             raise InvalidInputError(message)
         return clean_value
+
+    def _append_activity(self, event_type: str, standup: dict, actor_id: str, metadata: dict) -> None:
+        if not self.activity_repo:
+            return
+        try:
+            self.activity_repo.append(
+                event_type=event_type,
+                entity_type="standup",
+                entity_id=standup_code(standup),
+                actor_id=actor_id,
+                metadata=metadata,
+            )
+        except Exception:  # pragma: no cover - defensive logging path
+            logger.exception(
+                "Failed to append standup activity",
+                extra={"event_type": event_type, "standup_id": standup["id"]},
+            )

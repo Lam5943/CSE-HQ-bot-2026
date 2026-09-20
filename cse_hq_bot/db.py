@@ -94,6 +94,16 @@ class Database:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(meeting_id) REFERENCES meetings(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS activities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             self._ensure_project_settings_columns(conn)
@@ -109,6 +119,15 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_decisions_meeting_id ON decisions(meeting_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_activities_entity ON activities(entity_type, entity_id, created_at, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_activities_actor ON activities(actor_id, created_at, id)"
             )
 
     def _ensure_project_settings_columns(self, conn: sqlite3.Connection) -> None:

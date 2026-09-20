@@ -1,7 +1,14 @@
+import logging
+
 from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
+from cse_hq_bot.identifiers import bug_code
 from cse_hq_bot.models import Actor, BugStatus, Role
 from cse_hq_bot.permissions import ensure_can_modify_bug
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class BugService:
@@ -26,8 +33,9 @@ class BugService:
         },
     }
 
-    def __init__(self, repo: BugRepository):
+    def __init__(self, repo: BugRepository, activity_repo: ActivityRepository | None = None):
         self.repo = repo
+        self.activity_repo = activity_repo
 
     def report_bug(
         self,
@@ -37,13 +45,25 @@ class BugService:
         severity: int,
         assignee_id: str | None = None,
     ) -> int:
-        return self.repo.create(
+        bug_id = self.repo.create(
             title=title,
             description=description,
             severity=severity,
             created_by=actor.user_id,
             assignee_id=assignee_id,
         )
+        bug = self.repo.get(bug_id)
+        self._append_activity(
+            "BUG_REPORTED",
+            bug,
+            actor.user_id,
+            {
+                "row_id": bug_id,
+                "severity": bug["severity"],
+                "assignee_id": bug.get("assignee_id"),
+            },
+        )
+        return bug_id
 
     def list_bugs(self) -> list[dict]:
         return self.repo.list_all()
@@ -125,7 +145,43 @@ class BugService:
             if key in {"title", "description", "status", "severity", "assignee_id"}
             and value is not None
         }
+        status_from = bug["status"]
+        assignee_from = bug.get("assignee_id")
+        changed_fields = [key for key, value in valid.items() if bug.get(key) != value]
         self.repo.update(bug_id, valid)
+        if "status" in valid and bug["status"] != valid["status"]:
+            self._append_activity(
+                "BUG_STATUS_CHANGED",
+                bug,
+                actor.user_id,
+                {
+                    "row_id": bug_id,
+                    "from": status_from,
+                    "to": valid["status"],
+                },
+            )
+        if "assignee_id" in valid and assignee_from != valid["assignee_id"]:
+            self._append_activity(
+                "BUG_ASSIGNED",
+                bug,
+                actor.user_id,
+                {
+                    "row_id": bug_id,
+                    "from": assignee_from,
+                    "to": valid["assignee_id"],
+                },
+            )
+        edit_fields = sorted(field for field in changed_fields if field not in {"status", "assignee_id"})
+        if edit_fields:
+            self._append_activity(
+                "BUG_EDITED",
+                bug,
+                actor.user_id,
+                {
+                    "row_id": bug_id,
+                    "changed_fields": edit_fields,
+                },
+            )
 
     def assign_bug(self, actor: Actor, bug_id: int, assignee_id: str | None) -> None:
         self.update_bug(actor, bug_id, assignee_id=assignee_id)
@@ -138,3 +194,17 @@ class BugService:
 
     def reopen_bug(self, actor: Actor, bug_id: int) -> None:
         self.transition_status(actor, bug_id, BugStatus.OPEN.value)
+
+    def _append_activity(self, event_type: str, bug: dict, actor_id: str, metadata: dict) -> None:
+        if not self.activity_repo:
+            return
+        try:
+            self.activity_repo.append(
+                event_type=event_type,
+                entity_type="bug",
+                entity_id=bug_code(bug),
+                actor_id=actor_id,
+                metadata=metadata,
+            )
+        except Exception:  # pragma: no cover - defensive logging path
+            logger.exception("Failed to append bug activity", extra={"event_type": event_type, "bug_id": bug["id"]})
