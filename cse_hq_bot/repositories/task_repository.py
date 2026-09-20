@@ -14,14 +14,17 @@ class TaskRepository:
         created_by: str,
         assignee_id: str | None = None,
         deadline: str | None = None,
+        source_meeting_id: int | None = None,
     ) -> int:
         with self.db.connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO tasks (title, description, status, priority, assignee_id, deadline, created_by)
-                VALUES (?, ?, 'todo', ?, ?, ?, ?)
+                INSERT INTO tasks (
+                    title, description, status, priority, assignee_id, deadline, created_by, source_meeting_id
+                )
+                VALUES (?, ?, 'todo', ?, ?, ?, ?, ?)
                 """,
-                (title, description, priority, assignee_id, deadline, created_by),
+                (title, description, priority, assignee_id, deadline, created_by, source_meeting_id),
             )
             return int(cur.lastrowid)
 

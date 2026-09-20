@@ -8,9 +8,12 @@ from cse_hq_bot.repositories.project_repository import ProjectRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.collab_service import CollaborationService
+from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.qa_service import QAService
 from cse_hq_bot.services.report_service import ReportService
+from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
 
 
@@ -28,11 +31,14 @@ class ServiceContainer:
         self.task_service = TaskService(task_repo)
         self.bug_service = BugService(bug_repo)
         self.collab_service = CollaborationService(collab_repo)
+        self.meeting_service = MeetingService(collab_repo)
+        self.decision_service = DecisionService(collab_repo)
+        self.standup_service = StandupService(collab_repo)
         self.report_service = ReportService(
             self.project_service,
             self.task_service,
             self.bug_service,
-            self.collab_service,
+            self.standup_service,
         )
 
         provider = (

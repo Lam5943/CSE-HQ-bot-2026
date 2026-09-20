@@ -1,28 +1,42 @@
-from cse_hq_bot.models import Actor
-from cse_hq_bot.permissions import ensure_can_manage_project
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.meeting_service import MeetingService
+from cse_hq_bot.services.standup_service import StandupService
 
 
 class CollaborationService:
     def __init__(self, repo: CollaborationRepository):
-        self.repo = repo
+        self.meeting_service = MeetingService(repo)
+        self.decision_service = DecisionService(repo)
+        self.standup_service = StandupService(repo)
 
-    def schedule_meeting(self, actor: Actor, title: str, notes: str, meeting_date: str) -> int:
-        ensure_can_manage_project(actor)
-        return self.repo.create_meeting(title=title, notes=notes, meeting_date=meeting_date, created_by=actor.user_id)
+    def schedule_meeting(self, actor, title: str, notes: str, meeting_date: str) -> int:
+        return self.meeting_service.create_meeting(
+            actor,
+            title=title,
+            description="",
+            agenda=notes,
+            scheduled_at=meeting_date,
+        )
 
-    def record_decision(self, actor: Actor, summary: str, meeting_id: int | None = None) -> int:
-        ensure_can_manage_project(actor)
-        return self.repo.create_decision(summary=summary, decided_by=actor.user_id, meeting_id=meeting_id)
+    def record_decision(self, actor, summary: str, meeting_id: int | None = None) -> int:
+        return self.decision_service.create_decision(
+            actor,
+            title=summary[:120],
+            decision=summary,
+            context="",
+            rationale="",
+            alternatives="",
+            meeting_id=meeting_id,
+        )
 
-    def submit_standup(self, actor: Actor, update_text: str, blockers: str = "") -> int:
-        return self.repo.create_standup(member_id=actor.user_id, update_text=update_text, blockers=blockers)
+    def submit_standup(self, actor, update_text: str, blockers: str = "") -> int:
+        return self.standup_service.submit_standup(
+            actor,
+            previous=update_text,
+            current=update_text,
+            blockers=blockers,
+        )
 
     def weekly_standup_summary(self, days: int = 7) -> dict:
-        standups = self.repo.list_recent_standups(days=days)
-        blockers = [entry["blockers"] for entry in standups if entry["blockers"]]
-        return {
-            "entries": len(standups),
-            "members": sorted({entry["member_id"] for entry in standups}),
-            "blockers": blockers,
-        }
+        return self.standup_service.weekly_standup_summary(days=days)

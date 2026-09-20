@@ -5,7 +5,12 @@ from cse_hq_bot.ui import (
     _pagination_state,
     build_bug_detail_embed,
     build_bugs_embed,
+    build_decision_detail_embed,
+    build_decisions_embed,
     build_dashboard_embed,
+    build_meeting_detail_embed,
+    build_meetings_embed,
+    build_standup_embed,
     build_task_detail_embed,
     build_tasks_embed,
 )
@@ -102,3 +107,62 @@ def test_build_detail_embeds_show_action_visibility():
     bug_embed = build_bug_detail_embed(bug, can_modify=True)
     assert "View only" in task_embed.fields[-1].value
     assert "Set Status" in bug_embed.fields[-1].value
+
+
+def test_build_meetings_embed_states_and_detail_actions():
+    meetings = [
+        {
+            "id": 1,
+            "code": "MEETING-001",
+            "title": "Weekly Sync",
+            "description": "Discuss progress",
+            "agenda": "Status round robin",
+            "status": "in_progress",
+            "created_by": "lead",
+            "scheduled_at": "2026-09-20 09:00",
+        }
+    ]
+    embed = build_meetings_embed(meetings, mode_label="Active")
+    detail = build_meeting_detail_embed(
+        meetings[0],
+        participants=[{"user_id": "u1"}, {"user_id": "u2"}],
+        notes=[{"author_id": "u1", "content": "Finished API review"}],
+        can_manage=True,
+        can_add_note=True,
+    )
+    assert "MEETING-001" in (embed.description or "")
+    assert embed.fields[0].value == "Active"
+    assert "Record Decision" in detail.fields[-1].value
+    assert "Participants (2)" == detail.fields[3].name
+
+
+def test_build_decisions_embed_and_detail_states():
+    decisions = [
+        {
+            "id": 1,
+            "code": "DEC-001",
+            "title": "Keep SQLite",
+            "decision": "Use SQLite for v1",
+            "context": "Local deployment",
+            "rationale": "Simple",
+            "alternatives": "Postgres",
+            "meeting_id": 1,
+            "created_by": "lead",
+            "updated_at": "2026-09-20",
+        }
+    ]
+    embed = build_decisions_embed(decisions)
+    detail = build_decision_detail_embed(decisions[0], can_edit=False)
+    assert "DEC-001" in (embed.description or "")
+    assert detail.fields[-1].value == "Refresh, Back"
+
+
+def test_build_standup_embed_empty_and_populated_states():
+    empty_embed = build_standup_embed(None, [], mode_label="History")
+    populated = build_standup_embed(
+        {"previous": "Yesterday work", "current": "Today work", "blockers": "", "date": "2026-09-20"},
+        [{"date": "2026-09-20", "user_id": "u1", "current": "Today work"}],
+    )
+    assert empty_embed.description == "No standups found."
+    assert populated.fields[0].value == "Submitted"
+    assert "u1" in (populated.description or "")

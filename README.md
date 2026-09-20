@@ -230,11 +230,35 @@ Opens a private bug-tracker panel:
 - Refresh button
 - **Report Bug** modal (title, description, severity, assignee user ID) backed by `BugService`
 
+### `/meetings`
+
+Opens a private meetings panel with:
+
+- Meeting counts and browse modes for upcoming, active, and history
+- **Create** modal for title, description, agenda, and scheduled time
+- Detail actions for lifecycle changes, participant management, structured notes, linked decisions, and action-task creation
+
+### `/decisions`
+
+Opens a private decisions panel with:
+
+- Paginated browse and search views
+- **Record Decision** modal with title, decision text, context, rationale, and alternatives
+- Detail view for linked meeting, recorder, and editable decision metadata
+
+### `/standup`
+
+Opens a private standup panel with:
+
+- Your current daily submission status
+- **Submit / Update** modal for previous work, current work, and optional blockers
+- Team and recent-history views suitable for Discord embed pagination
+
 ### `/weekly_report`
 
 Displays the current weekly progress report. The response is private to the user who invoked the command.
 
-The underlying service layer also supports project, task, bug, collaboration, reporting, and grounded Q&A operations. Role checks are enforced in the service layer rather than relying only on Discord channel visibility. Additional Discord commands should be added as the command surface is expanded.
+The underlying service layer also supports project, task, bug, meeting, decision, standup, collaboration, reporting, and grounded Q&A operations. Role checks are enforced in the service layer rather than relying only on Discord channel visibility. Additional Discord commands should be added as the command surface is expanded.
 
 ## Configuring Google Gemini AI
 

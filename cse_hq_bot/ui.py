@@ -1,13 +1,23 @@
 import logging
 from collections.abc import Callable
+from datetime import date
 
 import discord
 
-from cse_hq_bot.errors import CSEHQError, InvalidTransitionError, NotFoundError, PermissionDeniedError
-from cse_hq_bot.models import Actor, BugStatus, ProjectDashboard, TaskStatus
+from cse_hq_bot.errors import (
+    CSEHQError,
+    InvalidInputError,
+    InvalidTransitionError,
+    NotFoundError,
+    PermissionDeniedError,
+)
+from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, ProjectDashboard, TaskStatus
 from cse_hq_bot.permissions import ensure_can_modify_bug, ensure_can_modify_task
 from cse_hq_bot.services.bug_service import BugService
+from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
+from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
@@ -15,6 +25,8 @@ logger = logging.getLogger(__name__)
 PAGE_SIZE = 8
 STALE_TASK_MESSAGE = "This task is no longer available in its previous state. Please refresh the task list."
 STALE_BUG_MESSAGE = "This bug is no longer available in its previous state. Please refresh the bug list."
+STALE_MEETING_MESSAGE = "This meeting is no longer available in its previous state. Please refresh the meetings list."
+STALE_DECISION_MESSAGE = "This decision is no longer available in its previous state. Please refresh the decisions list."
 
 
 def _trim(value: str, *, default: str = "N/A") -> str:
@@ -63,6 +75,14 @@ def _pagination_state(
 
 def _status_badge(status: str) -> str:
     return status.replace("_", " ").title()
+
+
+def _meeting_code(meeting: dict) -> str:
+    return str(meeting.get("code") or f"MEETING-{int(meeting['id']):03d}")
+
+
+def _decision_code(decision: dict) -> str:
+    return str(decision.get("code") or f"DEC-{int(decision['id']):03d}")
 
 
 def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
@@ -193,6 +213,187 @@ def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
             else "View only (you are not authorized to modify this bug)"
         ),
         inline=False,
+    )
+    return embed
+
+
+def build_meetings_embed(
+    meetings: list[dict],
+    *,
+    page: int = 0,
+    mode_label: str = "Upcoming",
+) -> discord.Embed:
+    embed = discord.Embed(title="Meetings", color=discord.Color.blurple())
+    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="Total", value=str(len(meetings)), inline=True)
+    embed.add_field(
+        name="Status",
+        value=(
+            f"Scheduled: {len([meeting for meeting in meetings if meeting.get('status') == MeetingStatus.SCHEDULED.value])}\n"
+            f"Active: {len([meeting for meeting in meetings if meeting.get('status') == MeetingStatus.IN_PROGRESS.value])}"
+        ),
+        inline=True,
+    )
+    if not meetings:
+        embed.description = "No meetings found."
+        return embed
+    page_items, safe_page, total_pages = _page_slice(meetings, page)
+    embed.description = "\n".join(
+        f"`{_meeting_code(meeting)}` "
+        f"[{_status_badge(meeting['status'])}] "
+        f"{_truncate(meeting['title'])} — {_truncate(meeting.get('scheduled_at') or meeting.get('meeting_date') or 'N/A', 40)}"
+        for meeting in page_items
+    )
+    embed.set_footer(
+        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(meetings)} meetings"
+    )
+    return embed
+
+
+def build_meeting_detail_embed(
+    meeting: dict,
+    *,
+    participants: list[dict],
+    notes: list[dict],
+    can_manage: bool,
+    can_add_note: bool,
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"{_meeting_code(meeting)} — {_truncate(meeting['title'], 120)}",
+        description=meeting.get("description") or "No description.",
+        color=discord.Color.dark_teal(),
+    )
+    embed.add_field(name="Status", value=_status_badge(meeting["status"]), inline=True)
+    embed.add_field(
+        name="Scheduled",
+        value=meeting.get("scheduled_at") or meeting.get("meeting_date") or "N/A",
+        inline=True,
+    )
+    embed.add_field(name="Creator", value=meeting.get("created_by") or "Unknown", inline=True)
+    participant_ids = [participant["user_id"] for participant in participants]
+    embed.add_field(
+        name=f"Participants ({len(participant_ids)})",
+        value="\n".join(participant_ids[:5]) if participant_ids else "No participants yet.",
+        inline=False,
+    )
+    embed.add_field(name="Agenda", value=_trim(meeting.get("agenda") or "", default="No agenda."), inline=False)
+    latest_notes = notes[:3]
+    embed.add_field(
+        name="Latest Notes",
+        value=(
+            "\n".join(
+                f"- {note['author_id']}: {_truncate(note['content'], 120)}"
+                for note in latest_notes
+            )
+            if latest_notes
+            else "No notes yet."
+        ),
+        inline=False,
+    )
+    actions: list[str] = ["Refresh", "Back"]
+    if can_manage and meeting["status"] == MeetingStatus.SCHEDULED.value:
+        actions.extend(["Start", "Cancel", "Participants"])
+    if can_manage and meeting["status"] == MeetingStatus.IN_PROGRESS.value:
+        actions.extend(["Complete", "Participants", "Record Decision"])
+    if can_manage and meeting["status"] == MeetingStatus.COMPLETED.value:
+        actions.append("Record Decision")
+    if can_add_note:
+        actions.append("Add Note")
+    actions.append("Create Action Task")
+    embed.add_field(name="Available Actions", value=", ".join(actions), inline=False)
+    return embed
+
+
+def build_decisions_embed(
+    decisions: list[dict],
+    *,
+    page: int = 0,
+    mode_label: str = "Browse",
+) -> discord.Embed:
+    embed = discord.Embed(title="Decisions", color=discord.Color.gold())
+    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="Total", value=str(len(decisions)), inline=True)
+    embed.add_field(
+        name="Linked Meetings",
+        value=str(len([decision for decision in decisions if decision.get("meeting_id")])),
+        inline=True,
+    )
+    if not decisions:
+        embed.description = "No decisions found."
+        return embed
+    page_items, safe_page, total_pages = _page_slice(decisions, page)
+    embed.description = "\n".join(
+        f"`{_decision_code(decision)}` "
+        f"{_truncate(decision.get('title') or decision.get('summary') or 'Untitled')} "
+        f"— {_truncate(decision.get('decision') or '', 50)}"
+        for decision in page_items
+    )
+    embed.set_footer(
+        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(decisions)} decisions"
+    )
+    return embed
+
+
+def build_decision_detail_embed(decision: dict, *, can_edit: bool) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"{_decision_code(decision)} — {_truncate(decision.get('title') or 'Untitled', 120)}",
+        description=decision.get("decision") or decision.get("summary") or "No decision text.",
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="Meeting", value=str(decision.get("meeting_id") or "Standalone"), inline=True)
+    embed.add_field(name="Recorder", value=decision.get("created_by") or decision.get("decided_by") or "Unknown", inline=True)
+    embed.add_field(name="Updated", value=decision.get("updated_at") or decision.get("created_at") or "N/A", inline=True)
+    embed.add_field(name="Context", value=_trim(decision.get("context") or "", default="None"), inline=False)
+    embed.add_field(name="Rationale", value=_trim(decision.get("rationale") or "", default="None"), inline=False)
+    embed.add_field(
+        name="Alternatives",
+        value=_trim(decision.get("alternatives") or "", default="None"),
+        inline=False,
+    )
+    embed.add_field(
+        name="Available Actions",
+        value="Edit, Refresh, Back" if can_edit else "Refresh, Back",
+        inline=False,
+    )
+    return embed
+
+
+def build_standup_embed(
+    today_entry: dict | None,
+    entries: list[dict],
+    *,
+    page: int = 0,
+    mode_label: str = "Today's Team",
+) -> discord.Embed:
+    embed = discord.Embed(title="Standup", color=discord.Color.green())
+    embed.add_field(
+        name="Today's Status",
+        value="Submitted" if today_entry else "Not submitted",
+        inline=True,
+    )
+    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="Total", value=str(len(entries)), inline=True)
+    if today_entry:
+        embed.add_field(
+            name="My Update",
+            value=(
+                f"Previous: {_truncate(today_entry.get('previous') or '', 80)}\n"
+                f"Current: {_truncate(today_entry.get('current') or '', 80)}\n"
+                f"Blockers: {_trim(today_entry.get('blockers') or '', default='None')}"
+            ),
+            inline=False,
+        )
+    if not entries:
+        embed.description = "No standups found."
+        return embed
+    page_items, safe_page, total_pages = _page_slice(entries, page)
+    embed.description = "\n".join(
+        f"`{entry.get('date')}` {entry.get('user_id')} — "
+        f"{_truncate(entry.get('current') or entry.get('update_text') or '', 90)}"
+        for entry in page_items
+    )
+    embed.set_footer(
+        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(entries)} standups"
     )
     return embed
 
@@ -1283,3 +1484,845 @@ class BugsView(OwnedView):
     ) -> None:
         self.selected_bug_id = None
         await self.render_list(interaction)
+
+
+class MeetingCreateModal(discord.ui.Modal, title="Create Meeting"):
+    def __init__(self, meeting_service: MeetingService, actor: Actor):
+        super().__init__()
+        self.meeting_service = meeting_service
+        self.actor = actor
+        self.title_input = discord.ui.TextInput(label="Title", max_length=120)
+        self.description_input = discord.ui.TextInput(
+            label="Description", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        self.agenda_input = discord.ui.TextInput(
+            label="Agenda", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        self.scheduled_input = discord.ui.TextInput(
+            label="Scheduled Time (YYYY-MM-DD or ISO datetime)", max_length=80
+        )
+        for item in (self.title_input, self.description_input, self.agenda_input, self.scheduled_input):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            meeting_id = self.meeting_service.create_meeting(
+                self.actor,
+                self.title_input.value,
+                self.description_input.value,
+                self.agenda_input.value,
+                self.scheduled_input.value,
+            )
+            await interaction.response.send_message(
+                f"Meeting #{meeting_id} created. Use Refresh to update the panel.",
+                ephemeral=True,
+            )
+        except PermissionDeniedError:
+            await interaction.response.send_message("Only leaders or co-leads can create meetings.", ephemeral=True)
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting creation failed", exc_info=error)
+            await interaction.response.send_message("Unable to create this meeting right now.", ephemeral=True)
+
+
+class MeetingParticipantModal(discord.ui.Modal):
+    def __init__(self, view: "MeetingsView", action_label: str):
+        super().__init__(title=f"{action_label} Participant")
+        self.meetings_view = view
+        self.action_label = action_label
+        self.user_input = discord.ui.TextInput(label="Participant User ID", max_length=32)
+        self.add_item(self.user_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if self.meetings_view.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.meetings_view.actor_resolver(interaction)
+        try:
+            if self.action_label == "Add":
+                self.meetings_view.meeting_service.add_participant(
+                    actor, self.meetings_view.selected_meeting_id, self.user_input.value
+                )
+                notice = "Participant added."
+            else:
+                self.meetings_view.meeting_service.remove_participant(
+                    actor, self.meetings_view.selected_meeting_id, self.user_input.value
+                )
+                notice = "Participant removed."
+            await self.meetings_view.render_detail(interaction, self.meetings_view.selected_meeting_id, notice=notice)
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except PermissionDeniedError:
+            await interaction.response.send_message("You are not allowed to manage participants.", ephemeral=True)
+        except NotFoundError:
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting participant update failed", exc_info=error)
+            await interaction.response.send_message("Unable to update meeting participants right now.", ephemeral=True)
+
+
+class MeetingNoteModal(discord.ui.Modal, title="Add Meeting Note"):
+    def __init__(self, view: "MeetingsView"):
+        super().__init__()
+        self.meetings_view = view
+        self.content_input = discord.ui.TextInput(
+            label="Note",
+            style=discord.TextStyle.paragraph,
+            max_length=1024,
+        )
+        self.add_item(self.content_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if self.meetings_view.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.meetings_view.actor_resolver(interaction)
+        try:
+            self.meetings_view.meeting_service.add_note(
+                actor, self.meetings_view.selected_meeting_id, self.content_input.value
+            )
+            await self.meetings_view.render_detail(
+                interaction, self.meetings_view.selected_meeting_id, notice="Meeting note recorded."
+            )
+        except (InvalidInputError, PermissionDeniedError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except (NotFoundError, InvalidTransitionError) as error:
+            logger.exception("Meeting note add failed", exc_info=error)
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting note add failed", exc_info=error)
+            await interaction.response.send_message("Unable to add this note right now.", ephemeral=True)
+
+
+class DecisionCreateModal(discord.ui.Modal, title="Record Decision"):
+    def __init__(self, decision_service: DecisionService, actor: Actor, meeting_id: int | None = None):
+        super().__init__()
+        self.decision_service = decision_service
+        self.actor = actor
+        self.meeting_id = meeting_id
+        self.title_input = discord.ui.TextInput(label="Title", max_length=120)
+        self.decision_input = discord.ui.TextInput(
+            label="Decision", style=discord.TextStyle.paragraph, max_length=1024
+        )
+        self.context_input = discord.ui.TextInput(
+            label="Context", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        self.rationale_input = discord.ui.TextInput(
+            label="Rationale", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        self.alternatives_input = discord.ui.TextInput(
+            label="Alternatives", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        for item in (
+            self.title_input,
+            self.decision_input,
+            self.context_input,
+            self.rationale_input,
+            self.alternatives_input,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            decision_id = self.decision_service.create_decision(
+                self.actor,
+                title=self.title_input.value,
+                decision=self.decision_input.value,
+                context=self.context_input.value,
+                rationale=self.rationale_input.value,
+                alternatives=self.alternatives_input.value,
+                meeting_id=self.meeting_id,
+            )
+            await interaction.response.send_message(
+                f"Decision #{decision_id} recorded. Use Refresh to update the panel.",
+                ephemeral=True,
+            )
+        except PermissionDeniedError:
+            await interaction.response.send_message("Only leaders or co-leads can record decisions.", ephemeral=True)
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except (NotFoundError, CSEHQError) as error:
+            logger.exception("Decision creation failed", exc_info=error)
+            await interaction.response.send_message("Unable to record this decision right now.", ephemeral=True)
+
+
+class DecisionSearchModal(discord.ui.Modal, title="Search Decisions"):
+    def __init__(self, view: "DecisionsView"):
+        super().__init__()
+        self.decisions_view = view
+        self.query_input = discord.ui.TextInput(label="Search", max_length=120)
+        self.add_item(self.query_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.decisions_view.apply_search(interaction, self.query_input.value)
+
+
+class DecisionEditModal(discord.ui.Modal, title="Edit Decision"):
+    def __init__(self, view: "DecisionsView", decision: dict):
+        super().__init__()
+        self.decisions_view = view
+        self.decision_id = int(decision["id"])
+        self.title_input = discord.ui.TextInput(
+            label="Title", default=decision.get("title") or "", max_length=120
+        )
+        self.decision_input = discord.ui.TextInput(
+            label="Decision",
+            style=discord.TextStyle.paragraph,
+            default=decision.get("decision") or decision.get("summary") or "",
+            max_length=1024,
+        )
+        self.context_input = discord.ui.TextInput(
+            label="Context",
+            style=discord.TextStyle.paragraph,
+            default=decision.get("context") or "",
+            required=False,
+            max_length=1024,
+        )
+        self.rationale_input = discord.ui.TextInput(
+            label="Rationale",
+            style=discord.TextStyle.paragraph,
+            default=decision.get("rationale") or "",
+            required=False,
+            max_length=1024,
+        )
+        self.alternatives_input = discord.ui.TextInput(
+            label="Alternatives",
+            style=discord.TextStyle.paragraph,
+            default=decision.get("alternatives") or "",
+            required=False,
+            max_length=1024,
+        )
+        for item in (
+            self.title_input,
+            self.decision_input,
+            self.context_input,
+            self.rationale_input,
+            self.alternatives_input,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        actor = self.decisions_view.actor_resolver(interaction)
+        try:
+            self.decisions_view.decision_service.edit_decision(
+                actor,
+                self.decision_id,
+                title=self.title_input.value,
+                decision=self.decision_input.value,
+                context=self.context_input.value,
+                rationale=self.rationale_input.value,
+                alternatives=self.alternatives_input.value,
+            )
+            await self.decisions_view.render_detail(interaction, self.decision_id, notice="Decision updated.")
+        except (InvalidInputError, PermissionDeniedError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except NotFoundError:
+            await interaction.response.send_message(STALE_DECISION_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Decision edit failed", exc_info=error)
+            await interaction.response.send_message("Unable to update this decision right now.", ephemeral=True)
+
+
+class MeetingActionTaskModal(discord.ui.Modal, title="Create Action Task"):
+    def __init__(self, view: "MeetingsView"):
+        super().__init__()
+        self.meetings_view = view
+        self.title_input = discord.ui.TextInput(label="Title", max_length=120)
+        self.description_input = discord.ui.TextInput(
+            label="Description", style=discord.TextStyle.paragraph, required=False, max_length=1024
+        )
+        self.priority_input = discord.ui.TextInput(label="Priority (1-5)", default="3", max_length=1)
+        self.assignee_input = discord.ui.TextInput(label="Assignee User ID", required=False, max_length=32)
+        self.deadline_input = discord.ui.TextInput(label="Deadline", required=False, max_length=80)
+        for item in (
+            self.title_input,
+            self.description_input,
+            self.priority_input,
+            self.assignee_input,
+            self.deadline_input,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if self.meetings_view.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.meetings_view.actor_resolver(interaction)
+        try:
+            self.meetings_view.meeting_service.get_meeting(actor, self.meetings_view.selected_meeting_id)
+            priority = int(self.priority_input.value)
+            if priority < 1 or priority > 5:
+                raise ValueError
+            task_id = self.meetings_view.task_service.create_task(
+                actor,
+                title=self.title_input.value,
+                description=self.description_input.value,
+                priority=priority,
+                assignee_id=_optional(self.assignee_input.value),
+                deadline=_optional(self.deadline_input.value),
+                source_meeting_id=self.meetings_view.selected_meeting_id,
+            )
+            await interaction.response.send_message(
+                f"Task #{task_id} created from this meeting.",
+                ephemeral=True,
+            )
+        except ValueError:
+            await interaction.response.send_message("Priority must be an integer from 1 to 5.", ephemeral=True)
+        except NotFoundError:
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting action task failed", exc_info=error)
+            await interaction.response.send_message("Unable to create the action task right now.", ephemeral=True)
+
+
+class StandupSubmitModal(discord.ui.Modal, title="Submit Standup"):
+    def __init__(self, view: "StandupView", existing: dict | None):
+        super().__init__()
+        self.standup_view = view
+        self.previous_input = discord.ui.TextInput(
+            label="Previous",
+            style=discord.TextStyle.paragraph,
+            default=existing.get("previous", "") if existing else "",
+            max_length=1024,
+        )
+        self.current_input = discord.ui.TextInput(
+            label="Current",
+            style=discord.TextStyle.paragraph,
+            default=existing.get("current", "") if existing else "",
+            max_length=1024,
+        )
+        self.blockers_input = discord.ui.TextInput(
+            label="Blockers",
+            style=discord.TextStyle.paragraph,
+            default=existing.get("blockers", "") if existing else "",
+            required=False,
+            max_length=1024,
+        )
+        for item in (self.previous_input, self.current_input, self.blockers_input):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        actor = self.standup_view.actor_resolver(interaction)
+        try:
+            self.standup_view.standup_service.submit_standup(
+                actor,
+                previous=self.previous_input.value,
+                current=self.current_input.value,
+                blockers=self.blockers_input.value,
+            )
+            await self.standup_view.render_list(interaction, notice="Standup saved.")
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Standup submit failed", exc_info=error)
+            await interaction.response.send_message("Unable to save your standup right now.", ephemeral=True)
+
+
+class MeetingSelect(discord.ui.Select):
+    def __init__(self, view: "MeetingsView"):
+        self.meetings_view = view
+        super().__init__(placeholder="Select meeting", min_values=1, max_values=1, options=[])
+
+    def sync_options(self, meetings: list[dict]) -> None:
+        page_items, _, _ = _page_slice(meetings, self.meetings_view.page)
+        options = [
+            discord.SelectOption(
+                label=f"{_meeting_code(meeting)} {_truncate(meeting['title'], 50)}",
+                value=str(meeting["id"]),
+                description=f"{_status_badge(meeting['status'])} • {_truncate(meeting.get('scheduled_at') or 'N/A', 40)}",
+            )
+            for meeting in page_items
+        ]
+        if options:
+            self.options = options
+            self.disabled = False
+        else:
+            self.options = [discord.SelectOption(label="No meetings", value="0")]
+            self.disabled = True
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.meetings_view.render_detail(interaction, int(self.values[0]))
+
+
+class MeetingsView(OwnedView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        meeting_service: MeetingService,
+        decision_service: DecisionService,
+        task_service: TaskService,
+    ):
+        super().__init__(owner_id)
+        self.actor_resolver = actor_resolver
+        self.meeting_service = meeting_service
+        self.decision_service = decision_service
+        self.task_service = task_service
+        self.page = 0
+        self.mode = "upcoming"
+        self.selected_meeting_id: int | None = None
+        self.meeting_select = MeetingSelect(self)
+        self.add_item(self.meeting_select)
+        self._sync_detail_buttons()
+
+    def _load_meetings(self, actor: Actor) -> list[dict]:
+        meetings = self.meeting_service.list_meetings(actor)
+        if self.mode == "upcoming":
+            meetings = [meeting for meeting in meetings if meeting["status"] == MeetingStatus.SCHEDULED.value]
+        elif self.mode == "active":
+            meetings = [meeting for meeting in meetings if meeting["status"] == MeetingStatus.IN_PROGRESS.value]
+        elif self.mode == "history":
+            meetings = [
+                meeting
+                for meeting in meetings
+                if meeting["status"] in {MeetingStatus.COMPLETED.value, MeetingStatus.CANCELLED.value}
+            ]
+        return meetings
+
+    def _sync_detail_buttons(
+        self, meeting: dict | None = None, *, can_manage: bool = False, can_add_note: bool = False
+    ) -> None:
+        has_meeting = meeting is not None
+        meeting_status = meeting.get("status") if meeting else None
+        self.start_meeting.disabled = not (
+            has_meeting and can_manage and meeting_status == MeetingStatus.SCHEDULED.value
+        )
+        self.complete_meeting.disabled = not (
+            has_meeting and can_manage and meeting_status == MeetingStatus.IN_PROGRESS.value
+        )
+        self.cancel_meeting.disabled = not (
+            has_meeting and can_manage and meeting_status == MeetingStatus.SCHEDULED.value
+        )
+        self.add_note.disabled = not (has_meeting and can_add_note)
+        self.add_participant.disabled = not (has_meeting and can_manage)
+        self.remove_participant.disabled = not (has_meeting and can_manage)
+        self.record_decision.disabled = not (
+            has_meeting and can_manage and meeting_status in {MeetingStatus.IN_PROGRESS.value, MeetingStatus.COMPLETED.value}
+        )
+        self.create_action_task.disabled = not has_meeting
+        self.back_to_list.disabled = not has_meeting
+
+    async def render_list(self, interaction: discord.Interaction, notice: str | None = None) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            meetings = self._load_meetings(actor)
+            self.page, total_pages, _, _ = _pagination_state(len(meetings), self.page)
+            self.meeting_select.sync_options(meetings)
+            self.selected_meeting_id = None
+            self._sync_detail_buttons()
+            embed = build_meetings_embed(meetings, page=self.page, mode_label=self.mode.title())
+            if notice:
+                embed.add_field(name="Info", value=notice, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        except CSEHQError as error:
+            logger.exception("Meeting list refresh failed", exc_info=error)
+            await interaction.response.send_message("Unable to load meetings right now. Please try Refresh.", ephemeral=True)
+
+    async def render_detail(self, interaction: discord.Interaction, meeting_id: int, notice: str | None = None) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            meeting = self.meeting_service.get_meeting(actor, meeting_id)
+            participants = self.meeting_service.list_participants(actor, meeting_id)
+            notes = self.meeting_service.get_notes(actor, meeting_id)
+            can_manage = actor.role.value in {"leader", "co_lead"}
+            can_add_note = can_manage or actor.user_id in {participant["user_id"] for participant in participants}
+            self.selected_meeting_id = meeting_id
+            self._sync_detail_buttons(meeting, can_manage=can_manage, can_add_note=can_add_note)
+            embed = build_meeting_detail_embed(
+                meeting,
+                participants=participants,
+                notes=notes,
+                can_manage=can_manage,
+                can_add_note=can_add_note,
+            )
+            if notice:
+                embed.add_field(name="Info", value=notice, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        except NotFoundError:
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Meeting detail load failed", exc_info=error)
+            await interaction.response.send_message("Unable to load meeting details now. Please refresh and try again.", ephemeral=True)
+
+    @discord.ui.button(label="Create", style=discord.ButtonStyle.success, row=1)
+    async def create_meeting(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        await interaction.response.send_modal(MeetingCreateModal(self.meeting_service, actor))
+
+    @discord.ui.button(label="Upcoming", style=discord.ButtonStyle.secondary, row=1)
+    async def show_upcoming(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.mode = "upcoming"
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Active", style=discord.ButtonStyle.secondary, row=1)
+    async def show_active(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.mode = "active"
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="History", style=discord.ButtonStyle.secondary, row=1)
+    async def show_history(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.mode = "history"
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=2)
+    async def previous_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page = max(self.page - 1, 0)
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page += 1
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, row=2)
+    async def refresh(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_meeting_id is not None:
+            await self.render_detail(interaction, self.selected_meeting_id, notice="Refreshed.")
+            return
+        await self.render_list(interaction, notice="Refreshed.")
+
+    @discord.ui.button(label="Start", style=discord.ButtonStyle.success, row=3)
+    async def start_meeting(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.actor_resolver(interaction)
+        try:
+            self.meeting_service.start_meeting(actor, self.selected_meeting_id)
+            await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting started.")
+        except PermissionDeniedError:
+            await interaction.response.send_message("You are not allowed to start this meeting.", ephemeral=True)
+        except (NotFoundError, InvalidTransitionError) as error:
+            logger.exception("Meeting start failed", exc_info=error)
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+
+    @discord.ui.button(label="Complete", style=discord.ButtonStyle.success, row=3)
+    async def complete_meeting(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.actor_resolver(interaction)
+        try:
+            self.meeting_service.complete_meeting(actor, self.selected_meeting_id)
+            await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting completed.")
+        except PermissionDeniedError:
+            await interaction.response.send_message("You are not allowed to complete this meeting.", ephemeral=True)
+        except (NotFoundError, InvalidTransitionError) as error:
+            logger.exception("Meeting complete failed", exc_info=error)
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=3)
+    async def cancel_meeting(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_meeting_id is None:
+            await interaction.response.send_message("Select a meeting first.", ephemeral=True)
+            return
+        actor = self.actor_resolver(interaction)
+        try:
+            self.meeting_service.cancel_meeting(actor, self.selected_meeting_id)
+            await self.render_detail(interaction, self.selected_meeting_id, notice="Meeting cancelled.")
+        except PermissionDeniedError:
+            await interaction.response.send_message("You are not allowed to cancel this meeting.", ephemeral=True)
+        except (NotFoundError, InvalidTransitionError) as error:
+            logger.exception("Meeting cancel failed", exc_info=error)
+            await interaction.response.send_message(STALE_MEETING_MESSAGE, ephemeral=True)
+
+    @discord.ui.button(label="Add Note", style=discord.ButtonStyle.primary, row=3)
+    async def add_note(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(MeetingNoteModal(self))
+
+    @discord.ui.button(label="Add Participant", style=discord.ButtonStyle.primary, row=4)
+    async def add_participant(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(MeetingParticipantModal(self, "Add"))
+
+    @discord.ui.button(label="Remove Participant", style=discord.ButtonStyle.secondary, row=4)
+    async def remove_participant(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(MeetingParticipantModal(self, "Remove"))
+
+    @discord.ui.button(label="Record Decision", style=discord.ButtonStyle.primary, row=4)
+    async def record_decision(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        await interaction.response.send_modal(
+            DecisionCreateModal(self.decision_service, actor, meeting_id=self.selected_meeting_id)
+        )
+
+    @discord.ui.button(label="Create Action Task", style=discord.ButtonStyle.primary, row=4)
+    async def create_action_task(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(MeetingActionTaskModal(self))
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=4)
+    async def back_to_list(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await self.render_list(interaction)
+
+
+class DecisionSelect(discord.ui.Select):
+    def __init__(self, view: "DecisionsView"):
+        self.decisions_view = view
+        super().__init__(placeholder="Select decision", min_values=1, max_values=1, options=[])
+
+    def sync_options(self, decisions: list[dict]) -> None:
+        page_items, _, _ = _page_slice(decisions, self.decisions_view.page)
+        options = [
+            discord.SelectOption(
+                label=f"{_decision_code(decision)} {_truncate(decision.get('title') or 'Untitled', 50)}",
+                value=str(decision["id"]),
+                description=_truncate(decision.get("decision") or decision.get("summary") or "", 70),
+            )
+            for decision in page_items
+        ]
+        if options:
+            self.options = options
+            self.disabled = False
+        else:
+            self.options = [discord.SelectOption(label="No decisions", value="0")]
+            self.disabled = True
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.decisions_view.render_detail(interaction, int(self.values[0]))
+
+
+class DecisionsView(OwnedView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        decision_service: DecisionService,
+    ):
+        super().__init__(owner_id)
+        self.actor_resolver = actor_resolver
+        self.decision_service = decision_service
+        self.page = 0
+        self.mode = "browse"
+        self.query: str | None = None
+        self.selected_decision_id: int | None = None
+        self.decision_select = DecisionSelect(self)
+        self.add_item(self.decision_select)
+        self.edit_decision.disabled = True
+        self.back_to_list.disabled = True
+
+    def _load_decisions(self, actor: Actor) -> list[dict]:
+        if self.query:
+            return self.decision_service.search_decisions(actor, self.query)
+        return self.decision_service.list_decisions(actor)
+
+    async def render_list(self, interaction: discord.Interaction, notice: str | None = None) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            decisions = self._load_decisions(actor)
+            self.page, total_pages, _, _ = _pagination_state(len(decisions), self.page)
+            self.decision_select.sync_options(decisions)
+            self.selected_decision_id = None
+            self.edit_decision.disabled = True
+            self.back_to_list.disabled = True
+            embed = build_decisions_embed(decisions, page=self.page, mode_label="Search" if self.query else "Browse")
+            if notice:
+                embed.add_field(name="Info", value=notice, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        except InvalidInputError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Decision list refresh failed", exc_info=error)
+            await interaction.response.send_message("Unable to load decisions right now. Please try Refresh.", ephemeral=True)
+
+    async def render_detail(self, interaction: discord.Interaction, decision_id: int, notice: str | None = None) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            decision = self.decision_service.get_decision(actor, decision_id)
+            self.selected_decision_id = decision_id
+            self.edit_decision.disabled = actor.role.value not in {"leader", "co_lead"}
+            self.back_to_list.disabled = False
+            embed = build_decision_detail_embed(decision, can_edit=not self.edit_decision.disabled)
+            if notice:
+                embed.add_field(name="Info", value=notice, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        except NotFoundError:
+            await interaction.response.send_message(STALE_DECISION_MESSAGE, ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Decision detail load failed", exc_info=error)
+            await interaction.response.send_message("Unable to load decision details now. Please refresh and try again.", ephemeral=True)
+
+    async def apply_search(self, interaction: discord.Interaction, query: str) -> None:
+        self.query = query.strip() or None
+        self.page = 0
+        await self.render_list(interaction, notice="Decision search updated.")
+
+    @discord.ui.button(label="Record Decision", style=discord.ButtonStyle.success, row=1)
+    async def record_new(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        await interaction.response.send_modal(DecisionCreateModal(self.decision_service, actor))
+
+    @discord.ui.button(label="Browse", style=discord.ButtonStyle.secondary, row=1)
+    async def browse(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.query = None
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=1)
+    async def search(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(DecisionSearchModal(self))
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=2)
+    async def previous_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page = max(self.page - 1, 0)
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page += 1
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, row=2)
+    async def refresh(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_decision_id is not None:
+            await self.render_detail(interaction, self.selected_decision_id, notice="Refreshed.")
+            return
+        await self.render_list(interaction, notice="Refreshed.")
+
+    @discord.ui.button(label="Edit", style=discord.ButtonStyle.primary, row=3)
+    async def edit_decision(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        if self.selected_decision_id is None:
+            await interaction.response.send_message("Select a decision first.", ephemeral=True)
+            return
+        actor = self.actor_resolver(interaction)
+        try:
+            decision = self.decision_service.get_decision(actor, self.selected_decision_id)
+            await interaction.response.send_modal(DecisionEditModal(self, decision))
+        except NotFoundError:
+            await interaction.response.send_message(STALE_DECISION_MESSAGE, ephemeral=True)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
+    async def back_to_list(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await self.render_list(interaction)
+
+
+class StandupView(OwnedView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        standup_service: StandupService,
+    ):
+        super().__init__(owner_id)
+        self.actor_resolver = actor_resolver
+        self.standup_service = standup_service
+        self.page = 0
+        self.mode = "team"
+
+    async def render_list(self, interaction: discord.Interaction, notice: str | None = None) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            today_entry = self.standup_service.get_today(actor)
+            target_entries = (
+                self.standup_service.list_recent(actor, days=7)
+                if self.mode == "history"
+                else self.standup_service.list_for_date(
+                    actor, today_entry["date"] if today_entry else date.today().isoformat()
+                )
+            )
+            self.page, _, _, _ = _pagination_state(len(target_entries), self.page)
+            embed = build_standup_embed(
+                today_entry,
+                target_entries,
+                page=self.page,
+                mode_label="History" if self.mode == "history" else "Today's Team",
+            )
+            if notice:
+                embed.add_field(name="Info", value=notice, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        except CSEHQError as error:
+            logger.exception("Standup list refresh failed", exc_info=error)
+            await interaction.response.send_message("Unable to load standups right now. Please try Refresh.", ephemeral=True)
+
+    @discord.ui.button(label="Submit / Update", style=discord.ButtonStyle.success, row=1)
+    async def submit_update(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        await interaction.response.send_modal(StandupSubmitModal(self, self.standup_service.get_today(actor)))
+
+    @discord.ui.button(label="Today's Team", style=discord.ButtonStyle.secondary, row=1)
+    async def todays_team(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.mode = "team"
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="History", style=discord.ButtonStyle.secondary, row=1)
+    async def history(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.mode = "history"
+        self.page = 0
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=2)
+    async def previous_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page = max(self.page - 1, 0)
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=2)
+    async def next_page(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        self.page += 1
+        await self.render_list(interaction)
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary, row=2)
+    async def refresh(  # type: ignore[override]
+        self, interaction: discord.Interaction, _: discord.ui.Button
+    ) -> None:
+        await self.render_list(interaction, notice="Refreshed.")
