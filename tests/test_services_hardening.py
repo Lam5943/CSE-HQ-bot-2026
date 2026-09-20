@@ -146,5 +146,9 @@ def test_bug_reopen_only_allows_resolved_to_open(services):
     bug_id = services["bug"].report_bug(leader, "bug", "desc", 3, assignee_id="lead")
     services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
     services["bug"].resolve_bug(leader, bug_id)
+    services["bug"].reopen_bug(leader, bug_id)
+    assert services["bug"].get_bug(leader, bug_id)["status"] == BugStatus.OPEN.value
+    services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
+    services["bug"].resolve_bug(leader, bug_id)
     with pytest.raises(InvalidTransitionError):
         services["bug"].transition_status(leader, bug_id, BugStatus.IN_PROGRESS.value)
