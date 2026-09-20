@@ -68,6 +68,9 @@ class MeetingService:
             meetings = [meeting for meeting in meetings if meeting.get("status") == status_value]
         return meetings
 
+    def list_accessible_meetings(self, actor: Actor, *, status: str | None = None) -> list[dict]:
+        return self.list_meetings(actor, status=status)
+
     def get_meeting(self, actor: Actor, meeting_id: int) -> dict:
         return self.repo.get_meeting(meeting_id)
 

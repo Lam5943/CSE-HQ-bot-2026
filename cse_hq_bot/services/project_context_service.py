@@ -60,7 +60,7 @@ class ProjectContextService:
             "task_statistics": self.task_service.task_statistics(actor),
             "bug_statistics": self.bug_service.bug_statistics(actor),
             "active_meetings": active_meetings,
-            "recent_decisions": self.decision_service.list_decisions(actor)[: self.DEFAULT_DECISION_LIMIT],
+            "recent_decisions": self.decision_service.list_accessible_decisions(actor)[: self.DEFAULT_DECISION_LIMIT],
             "standup_summary": self.standup_service.weekly_standup_summary(),
         }
 
@@ -74,7 +74,7 @@ class ProjectContextService:
         ]
         subject_actor = actor if subject_id == actor.user_id else Actor(subject_id, Role.MEMBER)
         today = self.standup_service.today_for_actor(subject_actor)
-        standup = self.standup_service.get_today(subject_actor, entry_date=today)
+        standup = self.standup_service.get_user_standup(actor, subject_id, entry_date=today)
         open_bugs = [
             bug
             for bug in self.bug_service.list_open_bugs(actor)
@@ -228,8 +228,8 @@ class ProjectContextService:
         return {
             "task_ids": {task_code(task) for task in self.task_service.list_accessible_tasks(actor)},
             "bug_ids": {bug_code(bug) for bug in self.bug_service.list_accessible_bugs(actor)},
-            "meeting_ids": {meeting_code(meeting) for meeting in self.meeting_service.list_meetings(actor)},
-            "decision_ids": {decision_code(decision) for decision in self.decision_service.list_decisions(actor)},
+            "meeting_ids": {meeting_code(meeting) for meeting in self.meeting_service.list_accessible_meetings(actor)},
+            "decision_ids": {decision_code(decision) for decision in self.decision_service.list_accessible_decisions(actor)},
             "standup_user_id": None if actor.role in {Role.LEADER, Role.CO_LEAD} else actor.user_id,
         }
 

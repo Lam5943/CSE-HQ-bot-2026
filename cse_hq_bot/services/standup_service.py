@@ -3,7 +3,7 @@ from datetime import date
 
 from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.identifiers import standup_code
-from cse_hq_bot.models import Actor
+from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.permissions import ensure_can_view_standup
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
@@ -56,6 +56,11 @@ class StandupService:
 
     def get_today(self, actor: Actor, entry_date: str | None = None) -> dict | None:
         return self.repo.get_standup_for_user_date(actor.user_id, self.resolve_entry_date(actor, entry_date))
+
+    def get_user_standup(self, actor: Actor, user_id: str, entry_date: str | None = None) -> dict | None:
+        ensure_can_view_standup(actor, user_id)
+        subject_actor = actor if actor.user_id == user_id else Actor(user_id, Role.MEMBER)
+        return self.repo.get_standup_for_user_date(user_id, self.resolve_entry_date(subject_actor, entry_date))
 
     def list_for_date(self, actor: Actor, entry_date: str) -> list[dict]:
         target_date = self.resolve_entry_date(actor, entry_date)

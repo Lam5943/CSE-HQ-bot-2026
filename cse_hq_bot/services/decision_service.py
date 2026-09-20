@@ -53,6 +53,9 @@ class DecisionService:
     def list_decisions(self, actor: Actor) -> list[dict]:
         return self.repo.list_decisions()
 
+    def list_accessible_decisions(self, actor: Actor) -> list[dict]:
+        return self.list_decisions(actor)
+
     def get_decision(self, actor: Actor, decision_id: int) -> dict:
         return self.repo.get_decision(decision_id)
 
