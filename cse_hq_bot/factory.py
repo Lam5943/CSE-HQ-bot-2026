@@ -2,25 +2,28 @@ from cse_hq_bot.ai.fake_provider import FakeAIProvider
 from cse_hq_bot.ai.gemini_provider import GeminiProvider
 from cse_hq_bot.config import Config
 from cse_hq_bot.db import Database
+from cse_hq_bot.github_provider import GitHubProvider
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.repositories.project_repository import ProjectRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
 from cse_hq_bot.services.activity_service import ActivityService
+from cse_hq_bot.services.ai_service import AIService
+from cse_hq_bot.services.ai_session_service import AISessionService
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.collab_service import CollaborationService
 from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.github_service import GitHubService
 from cse_hq_bot.services.meeting_service import MeetingService
-from cse_hq_bot.services.project_service import ProjectService
-from cse_hq_bot.services.ai_service import AIService
-from cse_hq_bot.services.ai_session_service import AISessionService
 from cse_hq_bot.services.project_context_service import ProjectContextService
+from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.qa_service import QAService
-from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.report_service import ReportService
+from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
 
@@ -36,6 +39,7 @@ class ServiceContainer:
         bug_repo = BugRepository(db)
         collab_repo = CollaborationRepository(db)
         activity_repo = ActivityRepository(db)
+        github_repo = GitHubRepositoryCache(db)
 
         self.project_service = ProjectService(project_repo)
         self.activity_service = ActivityService(activity_repo)
@@ -45,6 +49,26 @@ class ServiceContainer:
         self.meeting_service = MeetingService(collab_repo, activity_repo)
         self.decision_service = DecisionService(collab_repo, activity_repo)
         self.standup_service = StandupService(collab_repo, activity_repo)
+        github_provider = (
+            GitHubProvider(
+                config.github_repository_owner,
+                config.github_repository_name,
+                config.github_token,
+                timeout_seconds=config.github_request_timeout,
+                max_results=config.github_max_results,
+            )
+            if config.github_enabled
+            else None
+        )
+        self.github_service = GitHubService(
+            github_repo,
+            github_provider,
+            self.task_service,
+            self.bug_service,
+            enabled=config.github_enabled,
+            max_results=config.github_max_results,
+            cache_ttl=config.github_cache_ttl,
+        )
         self.project_context_service = ProjectContextService(
             self.project_service,
             self.task_service,
@@ -53,12 +77,14 @@ class ServiceContainer:
             self.decision_service,
             self.standup_service,
             self.activity_service,
+            self.github_service,
         )
         self.report_service = ReportService(
             self.project_service,
             self.task_service,
             self.bug_service,
             self.standup_service,
+            self.github_service,
         )
 
         provider = (

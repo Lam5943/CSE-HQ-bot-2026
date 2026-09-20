@@ -10,10 +10,17 @@ from cse_hq_bot.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
-from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, ProjectDashboard, TaskStatus
+from cse_hq_bot.models import (
+    Actor,
+    BugStatus,
+    MeetingStatus,
+    ProjectDashboard,
+    TaskStatus,
+)
 from cse_hq_bot.permissions import ensure_can_modify_bug, ensure_can_modify_task
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.github_service import GitHubService
 from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.standup_service import StandupService
@@ -1229,6 +1236,277 @@ class TasksView(OwnedView):
         await self.render_list(interaction)
 
 
+def build_github_overview_embed(data: dict) -> discord.Embed:
+    embed = discord.Embed(title="🐙 GitHub — CSE-HQ", color=discord.Color.dark_teal())
+    repository = data.get("repository")
+    if not repository:
+        embed.description = "GitHub cache is empty. A Leader or Co-Lead can run Sync."
+    else:
+        embed.description = f"Repository: **{repository.get('owner')}/{repository.get('name')}**"
+        embed.add_field(name="Open Issues", value=str(data.get("open_issues", 0)), inline=True)
+        embed.add_field(name="Open PRs", value=str(data.get("open_pull_requests", 0)), inline=True)
+        embed.add_field(name="Failing Checks", value=str(data.get("failing_checks", 0)), inline=True)
+    sync = data.get("sync") or {}
+    freshness = "STALE" if data.get("stale", True) else "FRESH"
+    embed.add_field(
+        name="Cache status",
+        value=(
+            f"{sync.get('status', 'NEVER_SYNCED')} • {freshness} • "
+            f"Last synced: {sync.get('last_synced_at') or 'never'}"
+        ),
+        inline=False,
+    )
+    return embed
+
+
+def build_github_items_embed(mode: str, items: list[dict], page: int = 0) -> discord.Embed:
+    titles = {
+        "issues": "🐛 Open GitHub Issues",
+        "pull_requests": "🔀 Open Pull Requests",
+        "commits": "🧾 Recent Commits",
+        "branches": "🌿 Branches",
+    }
+    embed = discord.Embed(title=titles[mode], color=discord.Color.dark_teal())
+    page_items, safe_page, total_pages = _page_slice(items, page)
+    if not page_items:
+        embed.description = "No cached records found."
+    elif mode == "issues":
+        embed.description = "\n".join(
+            f"**#{item['number']}** {_truncate(item.get('title') or '', 70)} • {item.get('state')}\n"
+            f"Assignees: {', '.join(item.get('assignees') or []) or 'none'} • "
+            f"Labels: {', '.join(item.get('labels') or []) or 'none'}\n"
+            f"<{item.get('url')}>"
+            for item in page_items
+        )
+    elif mode == "pull_requests":
+        embed.description = "\n".join(
+            f"**#{item['number']}** {_truncate(item.get('title') or '', 65)}\n"
+            f"Review: {item.get('review_status')} • Checks: {item.get('checks_status')} • "
+            f"`{item.get('base_branch')}` ← `{item.get('head_branch')}`\n<{item.get('url')}>"
+            for item in page_items
+        )
+    elif mode == "commits":
+        embed.description = "\n".join(
+            f"`{item.get('short_sha')}` {_truncate(item.get('message') or '', 72)} • {item.get('author')}"
+            for item in page_items
+        )
+    else:
+        embed.description = "\n".join(
+            f"`{item.get('name')}` • `{item.get('latest_sha', '')[:7]}`"
+            f"{' • protected' if item.get('protected') else ''}"
+            for item in page_items
+        )
+    embed.set_footer(text=f"Cached GitHub data • Page {safe_page + 1}/{total_pages}")
+    return embed
+
+
+def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
+    if mode == "issues":
+        embed = discord.Embed(
+            title=f"🐛 Issue #{item['number']} — {_truncate(item.get('title') or '', 180)}",
+            color=discord.Color.dark_teal(),
+            url=item.get("url"),
+        )
+        embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
+        embed.add_field(name="Author", value=item.get("author") or "unknown", inline=True)
+        embed.add_field(
+            name="Assignees",
+            value=", ".join(item.get("assignees") or []) or "none",
+            inline=False,
+        )
+        embed.add_field(
+            name="Labels",
+            value=", ".join(item.get("labels") or []) or "none",
+            inline=False,
+        )
+    else:
+        embed = discord.Embed(
+            title=f"🔀 PR #{item['number']} — {_truncate(item.get('title') or '', 180)}",
+            color=discord.Color.dark_teal(),
+            url=item.get("url"),
+        )
+        embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
+        embed.add_field(name="Draft", value="Yes" if item.get("draft") else "No", inline=True)
+        embed.add_field(name="Review", value=item.get("review_status") or "UNKNOWN", inline=True)
+        embed.add_field(name="Checks", value=item.get("checks_status") or "UNKNOWN", inline=True)
+        embed.add_field(
+            name="Branches",
+            value=f"`{item.get('base_branch')}` ← `{item.get('head_branch')}`",
+            inline=False,
+        )
+    embed.set_footer(text=f"Cached GitHub data • Updated: {item.get('updated_at') or 'unknown'}")
+    return embed
+
+
+class GitHubLinkModal(discord.ui.Modal, title="Link CSE-HQ record to GitHub"):
+    entity = discord.ui.TextInput(label="CSE-HQ record", placeholder="TASK-014 or BUG-004", max_length=20)
+    external_type = discord.ui.TextInput(label="GitHub type", placeholder="issue or pull_request", max_length=20)
+    external_id = discord.ui.TextInput(label="GitHub number", placeholder="23", max_length=12)
+
+    def __init__(self, parent: "GitHubView"):
+        super().__init__()
+        self.parent = parent
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        actor = self.parent.actor_resolver(interaction)
+        try:
+            prefix, raw_id = str(self.entity).strip().upper().split("-", 1)
+            entity_type = {"TASK": "task", "BUG": "bug"}.get(prefix)
+            if entity_type is None:
+                raise InvalidInputError("Use TASK-<id> or BUG-<id>.")
+            link = self.parent.github_service.create_link(
+                actor,
+                entity_type=entity_type,
+                entity_id=int(raw_id),
+                external_type=str(self.external_type),
+                external_id=str(self.external_id),
+            )
+            await interaction.response.send_message(
+                f"Linked {prefix}-{int(raw_id):03d} to GitHub {link['external_type']} #{link['external_id']}.",
+                ephemeral=True,
+            )
+        except (CSEHQError, ValueError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+
+
+class GitHubRecordSelect(discord.ui.Select):
+    def __init__(self, parent: "GitHubView"):
+        self.github_view = parent
+        super().__init__(
+            placeholder="Select an issue or pull request",
+            min_values=1,
+            max_values=1,
+            options=[discord.SelectOption(label="No selectable records", value="0")],
+            disabled=True,
+            row=3,
+        )
+
+    def sync_options(self, mode: str, items: list[dict], page: int) -> None:
+        if mode not in {"issues", "pull_requests"}:
+            self.options = [discord.SelectOption(label="No selectable records", value="0")]
+            self.disabled = True
+            return
+        page_items, _, _ = _page_slice(items, page)
+        self.options = [
+            discord.SelectOption(
+                label=f"#{item['number']} {_truncate(item.get('title') or '', 80)}",
+                value=str(item["number"]),
+            )
+            for item in page_items
+        ] or [discord.SelectOption(label="No selectable records", value="0")]
+        self.disabled = not page_items
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.github_view.render_detail(interaction, int(self.values[0]))
+
+
+class GitHubView(OwnedView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        github_service: GitHubService,
+    ):
+        super().__init__(owner_id)
+        self.actor_resolver = actor_resolver
+        self.github_service = github_service
+        self.mode = "overview"
+        self.page = 0
+        self.record_select = GitHubRecordSelect(self)
+        self.add_item(self.record_select)
+
+    def _items(self, actor: Actor) -> list[dict]:
+        if self.mode == "issues":
+            return self.github_service.list_open_issues(actor)
+        if self.mode == "pull_requests":
+            return self.github_service.list_open_pull_requests(actor)
+        if self.mode == "commits":
+            return self.github_service.list_recent_commits(actor)
+        if self.mode == "branches":
+            return self.github_service.list_branches(actor)
+        return []
+
+    async def _render(self, interaction: discord.Interaction) -> None:
+        actor = self.actor_resolver(interaction)
+        if self.mode == "overview":
+            self.record_select.sync_options(self.mode, [], self.page)
+            embed = build_github_overview_embed(self.github_service.get_overview(actor))
+        else:
+            items = self._items(actor)
+            self.page, _, _, _ = _pagination_state(len(items), self.page)
+            self.record_select.sync_options(self.mode, items, self.page)
+            embed = build_github_items_embed(self.mode, items, self.page)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def render_detail(self, interaction: discord.Interaction, number: int) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            if self.mode == "issues":
+                item = self.github_service.get_issue(actor, number)
+            elif self.mode == "pull_requests":
+                item = self.github_service.get_pull_request(actor, number)
+            else:
+                raise InvalidInputError("Select an issue or pull request first.")
+            await interaction.response.edit_message(
+                embed=build_github_detail_embed(self.mode, item),
+                view=self,
+            )
+        except CSEHQError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+
+    @discord.ui.button(label="Issues", style=discord.ButtonStyle.secondary, row=0)
+    async def issues(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.mode, self.page = "issues", 0
+        await self._render(interaction)
+
+    @discord.ui.button(label="Pull Requests", style=discord.ButtonStyle.secondary, row=0)
+    async def pull_requests(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.mode, self.page = "pull_requests", 0
+        await self._render(interaction)
+
+    @discord.ui.button(label="Commits", style=discord.ButtonStyle.secondary, row=0)
+    async def commits(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.mode, self.page = "commits", 0
+        await self._render(interaction)
+
+    @discord.ui.button(label="Branches", style=discord.ButtonStyle.secondary, row=0)
+    async def branches(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.mode, self.page = "branches", 0
+        await self._render(interaction)
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1)
+    async def previous_page(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.page = max(self.page - 1, 0)
+        await self._render(interaction)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1)
+    async def next_page(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.page += 1
+        await self._render(interaction)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        self.mode, self.page = "overview", 0
+        await self._render(interaction)
+
+    @discord.ui.button(label="Sync", style=discord.ButtonStyle.primary, row=2)
+    async def sync(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        actor = self.actor_resolver(interaction)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            data = await self.github_service.sync_all(actor)
+            await interaction.edit_original_response(embed=build_github_overview_embed(data), view=self)
+        except CSEHQError as error:
+            if interaction.response.is_done():
+                await interaction.followup.send(str(error), ephemeral=True)
+            else:
+                await interaction.response.send_message(str(error), ephemeral=True)
+
+    @discord.ui.button(label="Link", style=discord.ButtonStyle.secondary, row=2)
+    async def link(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:  # type: ignore[override]
+        await interaction.response.send_modal(GitHubLinkModal(self))
+
+
 class BugSelect(discord.ui.Select):
     def __init__(self, view: "BugsView"):
         self.bugs_view = view
@@ -1976,7 +2254,7 @@ class MeetingsView(OwnedView):
         actor = self.actor_resolver(interaction)
         try:
             meetings = self._load_meetings(actor)
-            self.page, total_pages, _, _ = _pagination_state(len(meetings), self.page)
+            self.page, _total_pages, _, _ = _pagination_state(len(meetings), self.page)
             self.meeting_select.sync_options(meetings)
             self.selected_meeting_id = None
             self._sync_detail_buttons()
@@ -2244,7 +2522,7 @@ class DecisionsView(OwnedView):
         actor = self.actor_resolver(interaction)
         try:
             decisions = self._load_decisions(actor)
-            self.page, total_pages, _, _ = _pagination_state(len(decisions), self.page)
+            self.page, _total_pages, _, _ = _pagination_state(len(decisions), self.page)
             self.decision_select.sync_options(decisions)
             self.selected_decision_id = None
             self.edit_decision.disabled = True

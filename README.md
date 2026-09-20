@@ -69,6 +69,13 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `AI_MAX_CONTEXT_ITEMS` | No | `12` | Maximum bounded project records retrieved for one AI answer. |
 | `AI_MAX_HISTORY_MESSAGES` | No | `8` | Maximum persisted user/assistant messages loaded into one AI request. |
 | `AI_REQUEST_TIMEOUT` | No | `20` | Request timeout in seconds for provider calls. |
+| `GITHUB_ENABLED` | No | `false` | Enable the optional read-only GitHub integration. |
+| `GITHUB_REPOSITORY_OWNER` | Required when GitHub is enabled | — | Owner of the single repository connected in v1. |
+| `GITHUB_REPOSITORY_NAME` | Required when GitHub is enabled | — | Repository name connected in v1. |
+| `GITHUB_TOKEN` | Required when GitHub is enabled | — | Environment-only GitHub App or fine-grained token with read-only repository permissions. |
+| `GITHUB_REQUEST_TIMEOUT` | No | `15` | GitHub API timeout in seconds. |
+| `GITHUB_CACHE_TTL` | No | `300` | Seconds before cached GitHub data is displayed as stale. |
+| `GITHUB_MAX_RESULTS` | No | `30` | Maximum normalized records fetched per GitHub resource type (capped at 100). |
 
 Example development configuration:
 
@@ -285,6 +292,18 @@ The assistant is intentionally bounded and permission-aware:
 
 Displays the current weekly progress report. The response is private to the user who invoked the command.
 
+### `/github`
+
+Opens a private, read-only development context panel backed by the local GitHub cache:
+
+- Repository status, open issue/PR counts, failing checks, and cache freshness
+- Bounded issue, pull-request, commit, and branch browsers
+- Review and CI/check status normalized for reporting and Gemini grounding
+- Manual sync restricted by service-layer Leader/Co-Lead permissions
+- Explicit task/bug links to cached GitHub issues or pull requests
+
+GitHub v1 never creates, edits, closes, merges, comments, reviews, triggers workflows, or pushes code. GitHub remains authoritative; SQLite only retains a bounded cache so existing data remains available after a failed refresh.
+
 The underlying service layer also supports project, task, bug, meeting, decision, standup, collaboration, reporting, and grounded Q&A operations. Role checks are enforced in the service layer rather than relying only on Discord channel visibility. Additional Discord commands should be added as the command surface is expanded.
 
 ## Configuring Google Gemini AI
@@ -323,7 +342,7 @@ sudo systemctl restart cse-hq-bot.service
 sudo journalctl -u cse-hq-bot.service -n 100 --no-pager
 ```
 
-The Q&A service builds a context from the project settings and up to the first 10 persisted tasks and bugs. The prompt instructs Gemini to use only that context, state when the context is insufficient, and never claim to modify project records. AI Q&A is read-only; it does not create or update tasks or bugs.
+The Q&A service builds bounded, permission-aware context from CSE-HQ records and, when enabled, the normalized GitHub cache. The prompt instructs Gemini to treat records as untrusted data, state when evidence is insufficient, preserve source IDs, and never claim to modify project or GitHub records.
 
 If Gemini initialization fails, verify all of the following:
 
@@ -332,6 +351,22 @@ If Gemini initialization fails, verify all of the following:
 - `AI_MODEL` is a model available to the configured Gemini API account.
 - The installed `google-genai` dependency is present in the active virtual environment.
 - The server can make outbound HTTPS requests.
+
+## Configuring GitHub Integration v1
+
+GitHub integration is optional and disabled by default. Use a GitHub App installation token or fine-grained personal access token limited to read-only access for repository metadata, issues, pull requests, commits, checks, and branches.
+
+```dotenv
+GITHUB_ENABLED=true
+GITHUB_REPOSITORY_OWNER=your_owner
+GITHUB_REPOSITORY_NAME=your_repository
+GITHUB_TOKEN=your_read_only_token
+GITHUB_REQUEST_TIMEOUT=15
+GITHUB_CACHE_TTL=300
+GITHUB_MAX_RESULTS=30
+```
+
+Run `/github`, then use **Sync** as a Leader or Co-Lead. Normal browsing and Gemini retrieval use SQLite-cached normalized records; they do not call GitHub on every interaction. A failed refresh records stale status while preserving the last successful snapshot. Never commit `GITHUB_TOKEN` or log authorization headers.
 
 ## Tests
 

@@ -2,14 +2,22 @@ import re
 from dataclasses import dataclass
 
 from cse_hq_bot.ai.base import AIProvider, RetrievedContextRecord
-from cse_hq_bot.errors import PermissionDeniedError
-from cse_hq_bot.identifiers import bug_code, decision_code, meeting_code, standup_code, task_code
+from cse_hq_bot.errors import NotFoundError, PermissionDeniedError
+from cse_hq_bot.identifiers import (
+    bug_code,
+    decision_code,
+    meeting_code,
+    standup_code,
+    task_code,
+)
 from cse_hq_bot.models import Actor
 from cse_hq_bot.services.project_context_service import ProjectContextService
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlan, RetrievalPlanner
 
-SOURCE_ID_PATTERN = re.compile(r"\b(?:TASK|BUG|MEETING|DEC|STANDUP)-\d+\b")
+SOURCE_ID_PATTERN = re.compile(
+    r"\b(?:(?:TASK|BUG|MEETING|DEC|STANDUP)-\d+|GH-(?:ISSUE|PR)-\d+|GH-COMMIT-[0-9a-fA-F]{7,40})\b"
+)
 MUTATION_PATTERN = re.compile(
     r"\b(?:complete|assign|update|change|create|delete|edit|resolve|close|reopen|start|block|record|submit|schedule|cancel)\b",
     re.IGNORECASE,
@@ -101,6 +109,36 @@ class AIService:
 
     def _retrieve_records(self, actor: Actor, plan: RetrievalPlan) -> list[RetrievedContextRecord]:
         strategy = plan.strategy
+        if strategy == "github_links" and plan.entity_type is not None and plan.entity_id is not None:
+            return self._records_from_github_search(
+                self.project_context_service.get_linked_github_context(
+                    actor,
+                    entity_type=plan.entity_type,
+                    entity_id=plan.entity_id,
+                ),
+                f"GitHub links for {plan.entity_type.upper()}-{plan.entity_id:03d}",
+            )
+        if strategy == "github_issues":
+            return self._records_from_github_issues(
+                self.project_context_service.get_open_github_issues(actor),
+                "open GitHub issues",
+            )
+        if strategy in {"github_pull_requests", "github_failing_checks"}:
+            pull_requests = self.project_context_service.get_open_pull_requests(actor)
+            if strategy == "github_failing_checks":
+                pull_requests = [item for item in pull_requests if item.get("checks_status") == "FAILING"]
+            return self._records_from_github_pull_requests(pull_requests, strategy)
+        if strategy == "github_recent_commits":
+            return self._records_from_github_commits(
+                self.project_context_service.get_recent_commits(actor),
+                "recent GitHub commits",
+            )
+        if strategy == "github_pr_context" and plan.github_number is not None:
+            pull_request = self.project_context_service.get_pr_context(actor, plan.github_number)
+            return self._records_from_github_pull_requests(
+                [pull_request] if pull_request else [],
+                "GitHub pull request detail",
+            )
         if strategy == "current_work":
             return self._records_from_current_work(self.project_context_service.get_current_work(actor), "current work")
         if strategy == "blockers":
@@ -125,8 +163,8 @@ class AIService:
                 )
             except PermissionDeniedError:
                 raise
-            except Exception:
-                pass
+            except NotFoundError:
+                strategy = "search"
         if strategy == "meeting_lookup":
             matches = self.project_context_service.search_project_memory(
                 actor,
@@ -156,7 +194,69 @@ class AIService:
                 + self._records_from_search_results(memory_matches, "decision reasoning")
             )[: self.max_context_items]
         matches = self.project_context_service.search_project_memory(actor, plan.query, limit=self.max_context_items)
-        return self._records_from_search_results(matches, "project search")
+        records = self._records_from_search_results(matches, "project search")
+        if len(records) < self.max_context_items:
+            github_matches = self.project_context_service.search_github_context(actor, plan.query)
+            records.extend(self._records_from_github_search(github_matches, "GitHub search"))
+        return records[: self.max_context_items]
+
+    def _records_from_github_issues(self, items: list[dict], reason: str) -> list[RetrievedContextRecord]:
+        return [
+            RetrievedContextRecord(
+                source_type="github_issue",
+                source_id=f"GH-ISSUE-{item['number']}",
+                title=item.get("title") or f"GitHub Issue #{item['number']}",
+                content=(
+                    f"State: {item.get('state')}\nAuthor: {item.get('author')}\n"
+                    f"Assignees: {item.get('assignees', [])}\nLabels: {item.get('labels', [])}\nURL: {item.get('url')}"
+                ),
+                timestamp=item.get("updated_at"),
+                retrieval_reason=reason,
+            )
+            for item in items[: self.max_context_items]
+        ]
+
+    def _records_from_github_pull_requests(self, items: list[dict], reason: str) -> list[RetrievedContextRecord]:
+        return [
+            RetrievedContextRecord(
+                source_type="github_pull_request",
+                source_id=f"GH-PR-{item['number']}",
+                title=item.get("title") or f"GitHub PR #{item['number']}",
+                content=(
+                    f"State: {item.get('state')}\nDraft: {item.get('draft')}\n"
+                    f"Review: {item.get('review_status')}\nChecks: {item.get('checks_status')}\n"
+                    f"Base: {item.get('base_branch')}\nHead: {item.get('head_branch')}\nURL: {item.get('url')}"
+                ),
+                timestamp=item.get("updated_at"),
+                retrieval_reason=reason,
+            )
+            for item in items[: self.max_context_items]
+        ]
+
+    def _records_from_github_commits(self, items: list[dict], reason: str) -> list[RetrievedContextRecord]:
+        return [
+            RetrievedContextRecord(
+                source_type="github_commit",
+                source_id=f"GH-COMMIT-{item['short_sha']}",
+                title=item.get("message") or item["short_sha"],
+                content=f"Author: {item.get('author')}\nURL: {item.get('url')}",
+                timestamp=item.get("committed_at"),
+                retrieval_reason=reason,
+            )
+            for item in items[: self.max_context_items]
+        ]
+
+    def _records_from_github_search(self, items: list[dict], reason: str) -> list[RetrievedContextRecord]:
+        records: list[RetrievedContextRecord] = []
+        for item in items:
+            item_type = item.get("item_type")
+            if item_type == "issue":
+                records.extend(self._records_from_github_issues([item], reason))
+            elif item_type == "pull_request":
+                records.extend(self._records_from_github_pull_requests([item], reason))
+            elif item_type == "commit":
+                records.extend(self._records_from_github_commits([item], reason))
+        return records[: self.max_context_items]
 
     def _records_from_current_work(self, payload: dict, reason: str) -> list[RetrievedContextRecord]:
         records: list[RetrievedContextRecord] = []

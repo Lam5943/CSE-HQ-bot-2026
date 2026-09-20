@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -17,6 +17,13 @@ class Config:
     ai_max_context_items: int
     ai_max_history_messages: int
     ai_request_timeout: int
+    github_enabled: bool
+    github_repository_owner: str | None
+    github_repository_name: str | None
+    github_token: str | None
+    github_request_timeout: int
+    github_cache_ttl: int
+    github_max_results: int
 
 
 def load_config() -> Config:
@@ -34,4 +41,11 @@ def load_config() -> Config:
         ai_max_context_items=max(1, int(os.getenv("AI_MAX_CONTEXT_ITEMS", "12"))),
         ai_max_history_messages=max(1, int(os.getenv("AI_MAX_HISTORY_MESSAGES", "8"))),
         ai_request_timeout=max(1, int(os.getenv("AI_REQUEST_TIMEOUT", "20"))),
+        github_enabled=os.getenv("GITHUB_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        github_repository_owner=os.getenv("GITHUB_REPOSITORY_OWNER"),
+        github_repository_name=os.getenv("GITHUB_REPOSITORY_NAME"),
+        github_token=os.getenv("GITHUB_TOKEN"),
+        github_request_timeout=max(1, int(os.getenv("GITHUB_REQUEST_TIMEOUT", "15"))),
+        github_cache_ttl=max(1, int(os.getenv("GITHUB_CACHE_TTL", "300"))),
+        github_max_results=max(1, min(100, int(os.getenv("GITHUB_MAX_RESULTS", "30")))),
     )

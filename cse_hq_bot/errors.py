@@ -48,3 +48,27 @@ class AISessionBusyError(CSEHQError):
 
 class AISessionConflictError(CSEHQError):
     """Raised when a Discord thread is already bound to an AI session."""
+
+
+class GitHubProviderError(CSEHQError):
+    """Raised when GitHub provider operations fail."""
+
+
+class GitHubConfigurationError(GitHubProviderError):
+    """Raised when GitHub integration configuration is invalid."""
+
+
+class GitHubAuthenticationError(GitHubProviderError):
+    """Raised when GitHub rejects configured credentials."""
+
+
+class GitHubRateLimitError(GitHubProviderError):
+    """Raised when GitHub API rate limits are exhausted."""
+
+
+class GitHubTimeoutError(GitHubProviderError):
+    """Raised when a GitHub API request times out."""
+
+
+class GitHubNotFoundError(GitHubProviderError):
+    """Raised when a requested GitHub resource does not exist."""
