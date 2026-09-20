@@ -74,14 +74,7 @@ class ProjectContextService:
         ]
         subject_actor = actor if subject_id == actor.user_id else Actor(subject_id, Role.MEMBER)
         today = self.standup_service.today_for_actor(subject_actor)
-        standup = next(
-            (
-                entry
-                for entry in self.standup_service.list_for_date(actor, today)
-                if entry.get("user_id") == subject_id
-            ),
-            None,
-        )
+        standup = self.standup_service.get_today(subject_actor, entry_date=today)
         open_bugs = [
             bug
             for bug in self.bug_service.list_open_bugs(actor)
