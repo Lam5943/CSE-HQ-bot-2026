@@ -1,5 +1,4 @@
 import asyncio
-from collections import defaultdict
 
 from cse_hq_bot.errors import AISessionBusyError, AISessionClosedError, PermissionDeniedError
 from cse_hq_bot.models import Actor
@@ -19,7 +18,7 @@ class AISessionService:
         self.ai_service = ai_service
         self.max_history_messages = max(1, int(max_history_messages))
         self._busy_sessions: set[int] = set()
-        self._guards: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._busy_state_lock = asyncio.Lock()
 
     def create_session(self, actor: Actor, discord_thread_id: str) -> dict:
         session_id = self.repo.create_session(actor.user_id, discord_thread_id)
@@ -53,22 +52,22 @@ class AISessionService:
     ) -> GroundedAnswer:
         session = self.repo.get_session(session_id)
         self._validate_session_access(actor, session, discord_thread_id)
-        guard = self._guards[session_id]
-        if guard.locked() or session_id in self._busy_sessions:
-            raise AISessionBusyError("This AI session is already processing a request")
-        async with guard:
+        async with self._busy_state_lock:
+            if session_id in self._busy_sessions:
+                raise AISessionBusyError("This AI session is already processing a request")
             self._busy_sessions.add(session_id)
-            try:
-                history = self.repo.list_messages(session_id, self.max_history_messages)
-                self.repo.create_message(session_id, "user", content)
-                answer = await self.ai_service.answer_question(
-                    actor=actor,
-                    question=content,
-                    history_messages=history,
-                )
-                self.repo.create_message(session_id, "assistant", answer.content, answer.source_refs)
-                return answer
-            finally:
+        try:
+            history = self.repo.list_messages(session_id, self.max_history_messages)
+            self.repo.create_message(session_id, "user", content)
+            answer = await self.ai_service.answer_question(
+                actor=actor,
+                question=content,
+                history_messages=history,
+            )
+            self.repo.create_message(session_id, "assistant", answer.content, answer.source_refs)
+            return answer
+        finally:
+            async with self._busy_state_lock:
                 self._busy_sessions.discard(session_id)
 
     def _validate_session_access(self, actor: Actor, session: dict, discord_thread_id: str) -> None:
