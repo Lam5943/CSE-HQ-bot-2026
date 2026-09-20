@@ -34,6 +34,10 @@ class AITimeoutError(AIProviderError):
     """Raised when the AI provider times out."""
 
 
+class AIProviderUnavailableError(AIProviderError):
+    """Raised when an AI provider is temporarily unavailable."""
+
+
 class AIMalformedResponseError(AIProviderError):
     """Raised when the AI provider returns an unusable response."""
 

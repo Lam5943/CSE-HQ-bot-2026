@@ -1,10 +1,12 @@
 import asyncio
 
 from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
+from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
 from cse_hq_bot.errors import (
     AIConfigurationError,
     AIMalformedResponseError,
     AIProviderError,
+    AIProviderUnavailableError,
     AIRateLimitError,
     AITimeoutError,
 )
@@ -20,7 +22,9 @@ except ImportError:  # pragma: no cover
 class GeminiProvider:
     def __init__(self, api_key: str | None, model_name: str):
         if not api_key:
-            raise AIConfigurationError("GEMINI_API_KEY is required when AI_PROVIDER=gemini")
+            raise AIConfigurationError(
+                "GEMINI_API_KEY is required when AI_PROVIDER=gemini"
+            )
         if genai is None or types is None:
             raise AIConfigurationError("google-genai package is not available")
         self.model_name = model_name
@@ -37,7 +41,7 @@ class GeminiProvider:
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
     ) -> AIProviderResponse:
-        prompt = self._build_prompt(system_instruction, messages, context_records)
+        prompt = render_provider_prompt(system_instruction, messages, context_records)
         try:
             response = await asyncio.wait_for(
                 self.client.aio.models.generate_content(
@@ -53,7 +57,11 @@ class GeminiProvider:
             raise AITimeoutError("The AI provider timed out") from exc
         except Exception as exc:  # pragma: no cover - SDK boundary
             raise self._normalize_error(exc) from exc
-        return AIProviderResponse(text=self._extract_text(response))
+        return AIProviderResponse(
+            text=self._extract_text(response),
+            provider="gemini",
+            model=self.model_name,
+        )
 
     def _extract_text(self, response: object) -> str:
         if response is None:
@@ -70,7 +78,7 @@ class GeminiProvider:
             candidates = getattr(response, "candidates", None) or []
             for candidate in candidates:
                 content = getattr(candidate, "content", None)
-                for part in (getattr(content, "parts", None) or []):
+                for part in getattr(content, "parts", None) or []:
                     part_text = getattr(part, "text", None)
                     if isinstance(part_text, str) and part_text.strip():
                         parts_text.append(part_text.strip())
@@ -78,37 +86,36 @@ class GeminiProvider:
             parts_text = []
         if parts_text:
             return "\n".join(parts_text)
-        raise AIMalformedResponseError("The AI provider returned an empty or malformed response")
-
-    def _build_prompt(
-        self,
-        system_instruction: str,
-        messages: list[AIMessage],
-        context_records: list[RetrievedContextRecord],
-    ) -> str:
-        conversation = "\n".join(f"{message.role.upper()}: {message.content}" for message in messages)
-        context = "\n".join(
-            (
-                f"[{record.source_id}] type={record.source_type} title={record.title} "
-                f"timestamp={record.timestamp or 'unknown'} reason={record.retrieval_reason}\n"
-                f"{record.content}"
-            )
-            for record in context_records
-        )
-        return (
-            f"<SYSTEM_INSTRUCTIONS>\n{system_instruction}\n</SYSTEM_INSTRUCTIONS>\n\n"
-            f"<PROJECT_CONTEXT>\n{context or 'No matching project records were retrieved.'}\n</PROJECT_CONTEXT>\n\n"
-            f"<CONVERSATION>\n{conversation}\n</CONVERSATION>"
+        raise AIMalformedResponseError(
+            "The AI provider returned an empty or malformed response"
         )
 
     def _normalize_error(self, exc: Exception) -> AIProviderError:
         message = str(exc).lower()
         name = exc.__class__.__name__.lower()
         code = getattr(exc, "code", None)
-        if code in {401, 403} or "api key" in message or "authentication" in message or "permission denied" in message:
+        if (
+            code in {401, 403}
+            or "api key" in message
+            or "authentication" in message
+            or "permission denied" in message
+        ):
             return AIConfigurationError("Gemini configuration is invalid")
-        if code == 429 or "429" in message or "rate" in message or "resourceexhausted" in name:
+        if (
+            code == 429
+            or "429" in message
+            or "rate" in message
+            or "resourceexhausted" in name
+        ):
             return AIRateLimitError("Gemini rate limit exceeded")
         if "timeout" in message or "deadline" in message or "readtimeout" in name:
             return AITimeoutError("Gemini request timed out")
+        server_error = isinstance(code, int) and code >= 500
+        if (
+            server_error
+            or "service unavailable" in message
+            or "connection" in message
+            or "unavailable" in name
+        ):
+            return AIProviderUnavailableError("Gemini is temporarily unavailable")
         return AIProviderError("Gemini request failed")
