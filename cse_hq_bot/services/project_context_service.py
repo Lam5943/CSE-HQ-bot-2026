@@ -65,7 +65,7 @@ class ProjectContextService:
         }
 
     def get_current_work(self, actor: Actor, user_id: str | None = None) -> dict:
-        subject_id = (user_id or actor.user_id).strip()
+        subject_id = (user_id or actor.user_id).strip() or actor.user_id
         ensure_can_view_member_context(actor, subject_id)
         tasks = [
             task
@@ -171,7 +171,7 @@ class ProjectContextService:
         needle = query.strip()
         if not needle:
             raise InvalidInputError("Search text is required")
-        normalized_domains = list(domains or self._SEARCH_DOMAINS)
+        normalized_domains = list(self._SEARCH_DOMAINS) if domains is None else list(domains)
         invalid_domains = [domain for domain in normalized_domains if domain not in self._SEARCH_DOMAINS]
         if invalid_domains:
             raise InvalidInputError(f"Unsupported search domains: {', '.join(sorted(set(invalid_domains)))}")
@@ -235,6 +235,8 @@ class ProjectContextService:
         return {
             "task_ids": {task_code(task) for task in self.task_service.list_accessible_tasks(actor)},
             "bug_ids": {bug_code(bug) for bug in self.bug_service.list_accessible_bugs(actor)},
+            "meeting_ids": {meeting_code(meeting) for meeting in self.meeting_service.list_meetings(actor)},
+            "decision_ids": {decision_code(decision) for decision in self.decision_service.list_decisions(actor)},
             "standup_user_id": None if actor.role in {Role.LEADER, Role.CO_LEAD} else actor.user_id,
         }
 
@@ -245,8 +247,10 @@ class ProjectContextService:
             return activity.get("entity_id") in access["task_ids"]
         if entity_type == "bug":
             return activity.get("entity_id") in access["bug_ids"]
-        if entity_type in {"meeting", "decision"}:
-            return True
+        if entity_type == "meeting":
+            return activity.get("entity_id") in access["meeting_ids"]
+        if entity_type == "decision":
+            return activity.get("entity_id") in access["decision_ids"]
         if entity_type == "standup":
             standup_user_id = access["standup_user_id"]
             return standup_user_id is None or metadata.get("user_id") == standup_user_id
