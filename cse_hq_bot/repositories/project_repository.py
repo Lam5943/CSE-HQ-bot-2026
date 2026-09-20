@@ -8,19 +8,46 @@ class ProjectRepository:
     def get_settings(self) -> dict:
         with self.db.connect() as conn:
             row = conn.execute(
-                "SELECT name, description, updated_at FROM project_settings WHERE id = 1"
+                """
+                SELECT
+                    name,
+                    description,
+                    goal,
+                    phase,
+                    sprint,
+                    deadline,
+                    status,
+                    updated_at
+                FROM project_settings
+                WHERE id = 1
+                """
             ).fetchone()
             return dict(row)
 
     def update_settings(self, name: str, description: str) -> None:
+        self.update_management(
+            {
+                "name": name,
+                "description": description,
+            }
+        )
+
+    def update_management(self, fields: dict[str, str]) -> None:
+        if not fields:
+            return
+        assignments = []
+        values = []
+        for key, value in fields.items():
+            assignments.append(f"{key} = ?")
+            values.append(value)
         with self.db.connect() as conn:
             conn.execute(
-                """
+                f"""
                 UPDATE project_settings
-                SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+                SET {", ".join(assignments)}, updated_at = CURRENT_TIMESTAMP
                 WHERE id = 1
                 """,
-                (name, description),
+                values,
             )
 
     def get_summary_counts(self) -> dict:

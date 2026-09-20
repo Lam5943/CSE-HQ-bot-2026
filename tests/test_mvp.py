@@ -51,11 +51,26 @@ def test_dashboard_and_project_permissions(services):
     member = Actor("u2", Role.MEMBER)
 
     services["project"].update_settings(leader, "Alpha", "Desc")
+    services["project"].update_management(
+        leader,
+        goal="Ship MVP",
+        phase="Development",
+        sprint="Sprint 1",
+        deadline="2026-10-01",
+        status="On Track",
+    )
     dashboard = services["project"].get_dashboard()
     assert dashboard.name == "Alpha"
+    assert dashboard.goal == "Ship MVP"
+    assert dashboard.phase == "Development"
+    assert dashboard.sprint == "Sprint 1"
+    assert dashboard.deadline == "2026-10-01"
+    assert dashboard.status == "On Track"
 
     with pytest.raises(PermissionDeniedError):
         services["project"].update_settings(member, "Nope", "Nope")
+    with pytest.raises(PermissionDeniedError):
+        services["project"].update_management(member, status="Blocked")
 
 
 def test_task_and_bug_workflow_with_permissions(services):

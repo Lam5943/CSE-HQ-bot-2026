@@ -56,6 +56,11 @@ class Bug:
 class ProjectDashboard:
     name: str
     description: str
+    goal: str
+    phase: str
+    sprint: str
+    deadline: str
+    status: str
     updated_at: datetime
     task_total: int
     task_open: int

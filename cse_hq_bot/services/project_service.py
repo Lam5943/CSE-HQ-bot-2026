@@ -15,6 +15,11 @@ class ProjectService:
         return ProjectDashboard(
             name=settings["name"],
             description=settings["description"],
+            goal=settings["goal"],
+            phase=settings["phase"],
+            sprint=settings["sprint"],
+            deadline=settings["deadline"],
+            status=settings["status"],
             updated_at=datetime.fromisoformat(settings["updated_at"].replace(" ", "T")),
             **counts,
         )
@@ -22,3 +27,13 @@ class ProjectService:
     def update_settings(self, actor: Actor, name: str, description: str) -> None:
         ensure_can_manage_project(actor)
         self.repo.update_settings(name=name, description=description)
+
+    def update_management(self, actor: Actor, **fields: str) -> None:
+        ensure_can_manage_project(actor)
+        valid = {
+            key: value
+            for key, value in fields.items()
+            if key in {"name", "description", "goal", "phase", "sprint", "deadline", "status"}
+            and value is not None
+        }
+        self.repo.update_management(valid)
