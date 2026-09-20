@@ -124,6 +124,34 @@ class Database:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES ai_sessions(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS github_cache (
+                    item_type TEXT NOT NULL,
+                    external_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (item_type, external_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS github_sync_state (
+                    scope TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    last_synced_at TEXT,
+                    error TEXT,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS project_external_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    entity_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    external_type TEXT NOT NULL,
+                    external_id TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(entity_type, entity_id, provider, external_type, external_id)
+                );
                 """
             )
             self._ensure_project_settings_columns(conn)
@@ -157,6 +185,12 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id, id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_github_cache_type ON github_cache(item_type, synced_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_external_links_entity ON project_external_links(entity_type, entity_id)"
             )
 
     def _ensure_project_settings_columns(self, conn: sqlite3.Connection) -> None:

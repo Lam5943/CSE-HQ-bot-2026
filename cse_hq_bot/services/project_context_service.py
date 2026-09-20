@@ -1,12 +1,19 @@
 from datetime import datetime
 
 from cse_hq_bot.errors import InvalidInputError
-from cse_hq_bot.identifiers import bug_code, decision_code, meeting_code, standup_code, task_code
-from cse_hq_bot.models import Actor, BugStatus, MeetingStatus, Role, TaskStatus
+from cse_hq_bot.identifiers import (
+    bug_code,
+    decision_code,
+    meeting_code,
+    standup_code,
+    task_code,
+)
+from cse_hq_bot.models import Actor, MeetingStatus, Role, TaskStatus
 from cse_hq_bot.permissions import ensure_can_view_member_context
 from cse_hq_bot.services.activity_service import ActivityService
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.github_service import GitHubService
 from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.standup_service import StandupService
@@ -30,6 +37,7 @@ class ProjectContextService:
         decision_service: DecisionService,
         standup_service: StandupService,
         activity_service: ActivityService,
+        github_service: GitHubService | None = None,
     ):
         self.project_service = project_service
         self.task_service = task_service
@@ -38,6 +46,52 @@ class ProjectContextService:
         self.decision_service = decision_service
         self.standup_service = standup_service
         self.activity_service = activity_service
+        self.github_service = github_service
+
+    def get_github_overview(self, actor: Actor) -> dict:
+        if self.github_service is None or not self.github_service.enabled:
+            return {"enabled": False, "repository": None, "sync": None}
+        return {"enabled": True, **self.github_service.get_overview(actor)}
+
+    def get_open_github_issues(self, actor: Actor) -> list[dict]:
+        if self.github_service is None or not self.github_service.enabled:
+            return []
+        return self.github_service.list_open_issues(actor)[: self.DEFAULT_SEARCH_LIMIT]
+
+    def get_open_pull_requests(self, actor: Actor) -> list[dict]:
+        if self.github_service is None or not self.github_service.enabled:
+            return []
+        return self.github_service.list_open_pull_requests(actor)[: self.DEFAULT_SEARCH_LIMIT]
+
+    def get_recent_commits(self, actor: Actor) -> list[dict]:
+        if self.github_service is None or not self.github_service.enabled:
+            return []
+        return self.github_service.list_recent_commits(actor)[: self.DEFAULT_SEARCH_LIMIT]
+
+    def get_pr_context(self, actor: Actor, number: int) -> dict | None:
+        if self.github_service is None or not self.github_service.enabled:
+            return None
+        return self.github_service.get_pull_request(actor, number)
+
+    def search_github_context(self, actor: Actor, query: str) -> list[dict]:
+        if self.github_service is None or not self.github_service.enabled:
+            return []
+        return self.github_service.search_context(actor, query)[: self.DEFAULT_SEARCH_LIMIT]
+
+    def get_linked_github_context(
+        self,
+        actor: Actor,
+        *,
+        entity_type: str,
+        entity_id: int,
+    ) -> list[dict]:
+        if self.github_service is None or not self.github_service.enabled:
+            return []
+        return self.github_service.get_linked_context(
+            actor,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )[: self.DEFAULT_SEARCH_LIMIT]
 
     def get_project_overview(self, actor: Actor) -> dict:
         dashboard = self.project_service.get_dashboard()

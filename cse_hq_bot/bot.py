@@ -25,6 +25,7 @@ from cse_hq_bot.ui import (
     BugsView,
     DashboardView,
     DecisionsView,
+    GitHubView,
     MeetingsView,
     StandupView,
     TasksView,
@@ -34,6 +35,7 @@ from cse_hq_bot.ui import (
     build_bugs_embed,
     build_dashboard_embed,
     build_decisions_embed,
+    build_github_overview_embed,
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
@@ -230,6 +232,23 @@ class CSEHQBot(commands.Bot):
                     "Unable to open the AI assistant right now.", ephemeral=True
                 )
 
+        @app_commands.command(name="github", description="Open the read-only GitHub development panel")
+        async def github(interaction: discord.Interaction) -> None:
+            try:
+                actor = resolve_actor_from_interaction(interaction)
+                data = self.container.github_service.get_overview(actor)
+                await interaction.response.send_message(
+                    embed=build_github_overview_embed(data),
+                    view=GitHubView(
+                        owner_id=interaction.user.id,
+                        actor_resolver=resolve_actor_from_interaction,
+                        github_service=self.container.github_service,
+                    ),
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                await interaction.response.send_message(str(error), ephemeral=True)
+
         self.tree.add_command(dashboard)
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
@@ -238,6 +257,7 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(decisions)
         self.tree.add_command(standup)
         self.tree.add_command(ai)
+        self.tree.add_command(github)
 
     async def on_message(self, message: discord.Message) -> None:  # pragma: no cover - exercised via unit helpers
         if message.author.bot:
