@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from cse_hq_bot.errors import InvalidInputError, InvalidTransitionError, NotFoundError, PermissionDeniedError
 from cse_hq_bot.models import Actor, MeetingStatus, Role
@@ -114,6 +114,10 @@ class MeetingService:
 
     def _normalize_datetime(self, value: str) -> str:
         clean_value = self._require_text(value, "Scheduled time is required")
+        try:
+            return date.fromisoformat(clean_value).isoformat() + " 00:00"
+        except ValueError:
+            pass
         try:
             parsed = datetime.fromisoformat(clean_value.replace("Z", "+00:00"))
         except ValueError as exc:

@@ -32,10 +32,10 @@ class StandupService:
         )
 
     def get_today(self, actor: Actor, entry_date: str | None = None) -> dict | None:
-        return self.repo.get_standup_for_user_date(actor.user_id, self._normalize_date(entry_date))
+        return self.repo.get_standup_for_user_date(actor.user_id, self.resolve_entry_date(actor, entry_date))
 
     def list_for_date(self, actor: Actor, entry_date: str) -> list[dict]:
-        target_date = self._normalize_date(entry_date)
+        target_date = self.resolve_entry_date(actor, entry_date)
         return [standup for standup in self.repo.list_standups() if standup.get("date") == target_date]
 
     def list_recent(self, actor: Actor, days: int = 7) -> list[dict]:
@@ -49,6 +49,12 @@ class StandupService:
             "members": sorted({entry["user_id"] for entry in standups}),
             "blockers": blockers,
         }
+
+    def today_for_actor(self, actor: Actor) -> str:
+        return date.today().isoformat()
+
+    def resolve_entry_date(self, actor: Actor, value: str | None) -> str:
+        return self._normalize_date(value or self.today_for_actor(actor))
 
     def _normalize_date(self, value: str | None) -> str:
         clean_value = (value or date.today().isoformat()).strip()

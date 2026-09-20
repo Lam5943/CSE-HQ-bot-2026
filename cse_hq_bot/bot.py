@@ -1,5 +1,4 @@
 import logging
-from datetime import date
 
 import discord
 from discord import app_commands
@@ -178,7 +177,7 @@ class CSEHQBot(commands.Bot):
                 today_entry = self.container.standup_service.get_today(actor)
                 entries = self.container.standup_service.list_for_date(
                     actor,
-                    today_entry["date"] if today_entry else date.today().isoformat(),
+                    today_entry["date"] if today_entry else self.container.standup_service.today_for_actor(actor),
                 )
                 view = StandupView(
                     owner_id=interaction.user.id,

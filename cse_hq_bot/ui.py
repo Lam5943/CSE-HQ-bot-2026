@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-from datetime import date
 
 import discord
 
@@ -2305,7 +2304,8 @@ class StandupView(OwnedView):
                 self.standup_service.list_recent(actor, days=7)
                 if self.mode == "history"
                 else self.standup_service.list_for_date(
-                    actor, today_entry["date"] if today_entry else date.today().isoformat()
+                    actor,
+                    today_entry["date"] if today_entry else self.standup_service.today_for_actor(actor),
                 )
             )
             self.page, _, _, _ = _pagination_state(len(target_entries), self.page)
