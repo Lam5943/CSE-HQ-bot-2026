@@ -61,14 +61,19 @@ class CSEHQBot(commands.Bot):
         @app_commands.command(name="tasks", description="Open task management panel")
         async def tasks(interaction: discord.Interaction) -> None:
             try:
-                data = self.container.task_service.list_tasks()
+                actor = resolve_actor_from_interaction(interaction)
+                data = self.container.task_service.list_my_tasks(actor)
                 view = TasksView(
                     owner_id=interaction.user.id,
                     actor_resolver=resolve_actor_from_interaction,
                     task_service=self.container.task_service,
                 )
                 await interaction.response.send_message(
-                    embed=build_tasks_embed(data),
+                    embed=build_tasks_embed(
+                        data,
+                        mode_label="My Tasks",
+                        stats=self.container.task_service.task_statistics(actor),
+                    ),
                     view=view,
                     ephemeral=True,
                 )
@@ -84,15 +89,19 @@ class CSEHQBot(commands.Bot):
         @app_commands.command(name="bugs", description="Open bug tracking panel")
         async def bugs(interaction: discord.Interaction) -> None:
             try:
-                all_bugs = self.container.bug_service.list_bugs()
-                open_bugs = [bug for bug in all_bugs if bug["status"] != "resolved"]
+                actor = resolve_actor_from_interaction(interaction)
+                open_bugs = self.container.bug_service.list_open_bugs(actor)
                 view = BugsView(
                     owner_id=interaction.user.id,
                     actor_resolver=resolve_actor_from_interaction,
                     bug_service=self.container.bug_service,
                 )
                 await interaction.response.send_message(
-                    embed=build_bugs_embed(open_bugs, show_all=False),
+                    embed=build_bugs_embed(
+                        open_bugs,
+                        show_all=False,
+                        stats=self.container.bug_service.bug_statistics(actor),
+                    ),
                     view=view,
                     ephemeral=True,
                 )
