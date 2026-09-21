@@ -616,3 +616,35 @@ def test_busy_lock_covers_primary_failure_and_fallback_attempt(tmp_path):
 
     asyncio.run(runner())
     assert len(primary.calls) == len(fallback.calls) == 1
+
+
+def test_router_uses_rate_limit_retry_after_hint(monkeypatch):
+    primary = _RecordingProvider()
+    router = AIProviderRouter(
+        primary,
+        None,
+        fallback_enabled=False,
+        primary_retry_count=1,
+        primary_retry_delay_seconds=1,
+    )
+    calls = 0
+    delays = []
+
+    async def generate(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise AIRateLimitError("limited", retry_after_seconds=2.5)
+        return AIProviderResponse(text="recovered", provider="groq")
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+
+    primary.generate = generate
+    from cse_hq_bot.ai import provider_router as module
+    monkeypatch.setattr(module.asyncio, "sleep", fake_sleep)
+
+    response = _run_router(router)
+
+    assert response.text == "recovered"
+    assert delays == [2.5]
