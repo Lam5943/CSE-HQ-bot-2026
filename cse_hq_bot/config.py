@@ -20,6 +20,7 @@ class Config:
     ai_model: str
     groq_api_key: str | None
     groq_model: str
+    groq_max_output_tokens: int
     ai_provider: str
     ai_max_context_items: int
     ai_max_history_messages: int
@@ -73,6 +74,7 @@ def load_config() -> Config:
         ai_model=os.getenv("AI_MODEL", "gemini-1.5-flash"),
         groq_api_key=os.getenv("GROQ_API_KEY"),
         groq_model=os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b"),
+        groq_max_output_tokens=max(1, int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "700"))),
         ai_provider=os.getenv("AI_PROVIDER", "fake").lower(),
         ai_max_context_items=max(1, int(os.getenv("AI_MAX_CONTEXT_ITEMS", "6"))),
         ai_max_history_messages=max(1, int(os.getenv("AI_MAX_HISTORY_MESSAGES", "4"))),
