@@ -527,14 +527,17 @@ def build_meetings_embed(
         embed.description += "\n\n> No meetings found."
         return embed
     page_items, safe_page, total_pages = _page_slice(meetings, page)
-    embed.description = "\n".join(
-        f"`{_meeting_code(meeting)}` "
-        f"[{_status_badge(meeting['status'])}] "
-        f"{_truncate(meeting['title'])} — {_truncate(meeting.get('scheduled_at') or meeting.get('meeting_date') or 'N/A', 40)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{_meeting_code(meeting)} · {_truncate(meeting['title'])}",
+            f"{_status_badge(meeting['status'])} · {_truncate(meeting.get('scheduled_at') or meeting.get('meeting_date') or 'N/A', 40)}",
+        )
         for meeting in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(meetings)} meetings"
+    set_surface_footer(
+        embed,
+        "meetings",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(meetings)} shown",
     )
     return embed
 
@@ -611,14 +614,17 @@ def build_decisions_embed(
         embed.description += "\n\n> No decisions found."
         return embed
     page_items, safe_page, total_pages = _page_slice(decisions, page)
-    embed.description = "\n".join(
-        f"`{_decision_code(decision)}` "
-        f"{_truncate(decision.get('title') or decision.get('summary') or 'Untitled')} "
-        f"— {_truncate(decision.get('decision') or '', 50)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{_decision_code(decision)} · {_truncate(decision.get('title') or decision.get('summary') or 'Untitled')}",
+            _truncate(decision.get("decision") or "", 80),
+        )
         for decision in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(decisions)} decisions"
+    set_surface_footer(
+        embed,
+        "decisions",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(decisions)} shown",
     )
     return embed
 
@@ -680,13 +686,17 @@ def build_standup_embed(
         embed.description += "\n\n> No standups found."
         return embed
     page_items, safe_page, total_pages = _page_slice(entries, page)
-    embed.description = "\n".join(
-        f"`{entry.get('date')}` {entry.get('user_id')} — "
-        f"{_truncate(entry.get('current') or entry.get('update_text') or '', 90)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{entry.get('user_id')} · {entry.get('date')}",
+            _truncate(entry.get("current") or entry.get("update_text") or "", 100),
+        )
         for entry in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(entries)} standups"
+    set_surface_footer(
+        embed,
+        "standup",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(entries)} shown",
     )
     return embed
 
