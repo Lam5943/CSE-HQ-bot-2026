@@ -29,6 +29,15 @@ class AIConfigurationError(AIProviderError):
 class AIRateLimitError(AIProviderError):
     """Raised when the AI provider rejects a request due to rate limits."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+    ):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
 
 class AITimeoutError(AIProviderError):
     """Raised when the AI provider times out."""
