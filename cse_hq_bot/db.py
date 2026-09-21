@@ -200,6 +200,25 @@ class Database:
                     PRIMARY KEY (entity_type, entity_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS dashboard_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    channel_id TEXT NOT NULL,
+                    weekday INTEGER NOT NULL DEFAULT 0,
+                    publish_time TEXT NOT NULL DEFAULT '09:00',
+                    timezone TEXT NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
+                    configured_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS dashboard_publications (
+                    week_key TEXT PRIMARY KEY,
+                    channel_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    published_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
                     delivery_id TEXT PRIMARY KEY,
                     event_type TEXT NOT NULL,
@@ -256,6 +275,9 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_forum_publications_thread ON forum_publications(thread_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dashboard_publications_published ON dashboard_publications(published_at)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_received ON github_webhook_deliveries(received_at)"
