@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 
 from cse_hq_bot.config import Config
 from cse_hq_bot.db import Database
@@ -9,7 +10,6 @@ from cse_hq_bot.models import Actor
 from cse_hq_bot.permissions import ensure_can_manage_project
 from cse_hq_bot.repositories.forum_repository import ForumRepository
 from cse_hq_bot.services.github_service import GitHubService
-from cse_hq_bot.version import application_version as installed_application_version
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class HealthService:
         self.forum_repo = forum_repo
         self.webhook_server = webhook_server
         self.ai_provider = ai_provider
-        self.application_version = application_version or installed_application_version()
+        self.application_version = application_version or self._package_version()
 
     def get_report(self, actor: Actor, *, discord_ready: bool) -> HealthReport:
         ensure_can_manage_project(actor)
@@ -276,3 +276,9 @@ class HealthService:
     def _safe_category(self, value: object) -> str:
         text = "".join(character for character in str(value or "unknown") if character.isalnum() or character in "_-")
         return text[:64] or "unknown"
+
+    def _package_version(self) -> str:
+        try:
+            return version("cse-hq-bot")
+        except PackageNotFoundError:
+            return "development"

@@ -46,7 +46,6 @@ from cse_hq_bot.ui import (
     build_tasks_embed,
     split_ai_response,
 )
-from cse_hq_bot.version import application_version
 
 logger = logging.getLogger(__name__)
 
@@ -598,15 +597,6 @@ def known_member_ids_from_interaction(
 def main() -> None:  # pragma: no cover
     config = load_config()
     configure_logging(config.log_level)
-    logger.info(
-        "Starting CSE-HQ",
-        extra={
-            "component": "application",
-            "operation": "startup",
-            "result": "starting",
-            "application_version": application_version(),
-        },
-    )
     if not config.discord_token:
         raise RuntimeError("DISCORD_TOKEN is required to run the bot")
     container = ServiceContainer(config)

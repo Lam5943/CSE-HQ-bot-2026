@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cse-hq-bot"
-version = "1.0.0"
-description = "Discord-native project coordination with grounded AI and GitHub context"
+version = "0.1.0"
+description = "CSE-HQ Discord bot MVP"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

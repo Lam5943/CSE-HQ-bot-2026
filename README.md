@@ -1,9 +1,9 @@
-# CSE-HQ v1.0.0
+# CSE-HQ Bot MVP
 
 [![CI](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/ci.yml/badge.svg)](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/codeql.yml/badge.svg)](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/codeql.yml)
 
-CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
+CSE-HQ is a Discord bot MVP for project coordination. It provides:
 
 - Role-aware project, task, and bug operations for Leaders, Co-Leads, and Members
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
@@ -14,11 +14,9 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 - Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
 
-See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
-
 ## Requirements
 
-- Python 3.11 or newer (CI validates Python 3.12)
+- Python 3.11 or newer
 - A Discord application and bot token
 - A server or local machine that can run a long-lived Python process
 - Optional: a Google Gemini API key for Gemini-powered project Q&A and the private `/ai` assistant
@@ -67,6 +65,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | Yes | — | Token for the Discord bot. Never commit this value. |
+| `DISCORD_GUILD_ID` | No | — | Optional Discord server ID for environment-specific configuration. |
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
 | `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. When disabled, AI threads return one concise configuration hint per user instead of failing silently. |
@@ -99,6 +98,7 @@ Example development configuration:
 
 ```dotenv
 DISCORD_TOKEN=your_discord_bot_token
+DISCORD_GUILD_ID=your_discord_server_id
 DATABASE_PATH=./cse_hq.db
 LOG_LEVEL=INFO
 AI_ENABLE_MESSAGE_CONTENT=false
@@ -137,33 +137,11 @@ Start the bot from the project directory with the virtual environment activated:
 python -m cse_hq_bot.bot
 ```
 
-The bot requires `DISCORD_TOKEN`. On startup, the SQLite schema is initialized
-and upgraded additively in an idempotent way, so a fresh or supported older
-database does not require a separate migration command.
+The bot requires `DISCORD_TOKEN`. On startup, the SQLite schema is initialized in an idempotent way, so restarting the bot does not require a manual database migration for the existing MVP schema.
 
 To stop the bot locally, press `Ctrl+C`.
 
 ## Running on a Linux Server with systemd
-
-This is the documented deployment shape, not a claim of support for every host
-or process manager. Before deployment, confirm:
-
-- Python 3.11+ and outbound HTTPS access are available.
-- The bot is invited with `bot` and `applications.commands`, and can view/send
-  messages, create private threads, and use application commands. Forum publishing
-  additionally needs view, create-public-thread, send-message, and thread reply
-  permissions in each configured Forum.
-- The default Guilds and Guild Messages intents remain enabled. Discord's
-  privileged Message Content intent is required only when natural AI thread chat
-  is enabled with `AI_ENABLE_MESSAGE_CONTENT=true`.
-- `DATABASE_PATH` points to backed-up persistent storage. Run one CSE-HQ process
-  against a SQLite database; multi-process SQLite deployment is not tested.
-- Gemini/OpenAI credentials and model names are present only for providers you
-  enable. GitHub uses a read-only fine-grained token or GitHub App installation
-  token with metadata, issues, pull requests, commits, checks, and branch reads.
-- If webhooks are enabled, the configured `WEBHOOK_PORT` and
-  `GITHUB_WEBHOOK_PATH` are reachable through public HTTPS or a trusted
-  TLS-terminating reverse proxy. The built-in listener does not terminate TLS.
 
 The following example assumes:
 
@@ -265,80 +243,30 @@ sudo chown csebot:csebot /var/lib/cse-hq-bot/cse_hq.db.backup
 ## Runtime Architecture
 
 ```text
-Discord
-  ↓
-UI / Commands
-  ↓
-Application Services
-  ↓
-Repositories
-  ↓
-SQLite
+Discord commands and private AI threads
+                  ↓
+              CSEHQBot
+                  ↓
+           ServiceContainer
+        ┌─────────┼──────────┐
+        ↓         ↓          ↓
+ Domain services  AI stack   GitHub / Forum adapters
+        └─────────┼──────────┘
+                  ↓
+         SQLite repositories
+
+/health → HealthService → bounded local snapshots only
 ```
 
-The main domains are Project, Tasks, Bugs, Meetings, Decisions, Standups,
-Activity, GitHub, Forum Publishing, AI Sessions, AI Actions, and Health. Domain
-services and SQLite remain authoritative for project records. External providers
-are isolated behind adapters.
-
-```text
-AIService
-  ↓
-RetrievalPlanner
-  ↓
-ProjectContextService
-  ↓
-PromptBuilder
-  ↓
-AIProviderRouter
-  ├── Gemini
-  └── OpenAI fallback
-```
-
-```text
-AI proposal
-  ↓
-Explicit confirmation
-  ↓
-AIActionService
-  ↓
-Domain Service
-  ↓
-Mutation
-```
-
-The model only proposes an action. Ownership, expiry, permissions, current state,
-and the explicit confirmation are validated by application services before an
-existing domain service performs a mutation. `HealthService` reads only bounded
-local process and SQLite state; it does not contact external providers.
-
-## Roles and Permissions
-
-- **Member:** can use read surfaces, manage permitted assigned/owned work, submit
-  their own standup, and use their own private AI sessions.
-- **Leader / CoLead:** can perform project-level management, GitHub sync, Forum
-  setup, health diagnostics, and other privileged domain mutations.
-- Authorization is enforced by application services. Discord buttons, command
-  visibility, thread privacy, and ephemeral responses are not the sole security
-  boundary.
+Domain services and SQLite remain authoritative for project records. External
+providers are isolated behind their existing adapters. `HealthService` reads
+database connectivity, persisted sync/delivery state, in-process listener and AI
+runtime status, and Forum configuration without bypassing domain permissions or
+contacting external services.
 
 ## Bot Usage
 
-The stable command surface is:
-
-| Command | Access | Purpose |
-| --- | --- | --- |
-| `/dashboard` | All roles; management restricted | Project status and management panel |
-| `/tasks` | All roles; mutations permission-aware | Task browsing and workflow |
-| `/bugs` | All roles; mutations permission-aware | Bug browsing and workflow |
-| `/meetings` | All roles; mutations permission-aware | Meeting lifecycle, participants, notes, and action tasks |
-| `/decisions` | All roles; mutations permission-aware | Decision history, creation, and editing |
-| `/standup` | All roles | Own daily submission plus permitted team/history views |
-| `/github` | All roles; sync restricted to Leader/CoLead | Read-only cached GitHub context |
-| `/weekly_report` | All roles | Current weekly progress report |
-| `/ai` | All roles | Private grounded AI sessions and confirmed proposals |
-| `/health` | Leader/CoLead only | Bounded operational diagnostics |
-| `/setup forums` | Leader/CoLead only | Persist Discord Forum mappings |
+The current MVP exposes these Discord application commands:
 
 ### `/dashboard`
 
@@ -461,10 +389,7 @@ saves all three mappings. The optional `test_publish` switch creates a harmless
 test post in each configured Forum. Forum channel IDs are stored in SQLite, never
 in environment variables.
 
-The underlying service layer supports project, task, bug, meeting, decision,
-standup, activity, reporting, grounded Q&A, GitHub cache, Forum publishing, and
-health operations. Role checks are enforced in the service layer rather than
-relying only on Discord channel visibility.
+The underlying service layer also supports project, task, bug, meeting, decision, standup, collaboration, reporting, and grounded Q&A operations. Role checks are enforced in the service layer rather than relying only on Discord channel visibility. Additional Discord commands should be added as the command surface is expanded.
 
 ## Configuring Google Gemini AI
 
@@ -636,24 +561,6 @@ For first-line troubleshooting:
 5. For Forum publishing, rerun `/setup forums` with `test_publish` after fixing
    Discord channel permissions.
 
-## Known Limitations
-
-- One GitHub repository is supported, read-only. CSE-HQ performs no GitHub writes.
-- SQLite is the only database and the supported deployment is a single bot
-  process with persistent local storage.
-- AI answers are bounded by retrieved records and provider availability; failover
-  is one OpenAI attempt after eligible Gemini availability failures, not a general
-  provider pool.
-- Discord Views attached to pending AI proposals are not restored after restart.
-  Persisted proposals never execute automatically; create a fresh proposal if the
-  original confirmation buttons are gone.
-- `/health` reports bounded local/configured/latest-result state and deliberately
-  avoids expensive live provider probes.
-- Forum publishing requires pre-existing Discord Forum channels configured with
-  `/setup forums`; missing Forum configuration does not disable core project work.
-- The webhook listener requires an external HTTPS endpoint or reverse proxy in
-  production and does not provide deployment, paging, or auto-restart features.
-
 ## Tests
 
 Install the development dependencies, then run the same validation gates used by
@@ -681,7 +588,7 @@ The separate `CodeQL` workflow analyzes Python on pull requests, pushes to
 status must be taken from the GitHub check; local validation is not reported as a
 CodeQL pass.
 
-Latest local repository validation (2026-09-21): 247 offline tests passed. Ruff,
+Latest local repository validation (2026-09-21): 243 offline tests passed. Ruff,
 Python compilation, Bandit, `pip check`, `pip-audit`, and tracked-file plus
 Git-history secret-signature scanning also passed. The previous 18 Ruff findings
 were fixed. The five B608 findings were removed by replacing dynamic SQL with
@@ -704,7 +611,7 @@ an administrator setting and is not modified by these workflows.
 - Application-level permissions are enforced in service-layer helpers, not only through Discord visibility.
 - SQLite schema initialization is safe to run repeatedly.
 - Meaningful task, bug, meeting, decision, and standup mutations append immutable activity records after the primary write succeeds.
-- `ProjectContextService` provides permission-aware, structured project reads for reporting and grounded retrieval without bypassing domain services.
+- `ProjectContextService` provides permission-aware, structured project reads for future reporting and grounded retrieval without bypassing domain services.
 - The fake AI provider is the recommended default for development and automated tests.
 - Keep `.env`, Discord tokens, Gemini/OpenAI API keys, and production database backups out of version control.
 
