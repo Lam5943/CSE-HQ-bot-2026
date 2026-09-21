@@ -466,11 +466,18 @@ def build_bugs_embed(
         return embed
     page_items, safe_page, total_pages = _page_slice(bugs, page)
     lines = [
-        f"`#{bug['id']}` [{_status_badge(bug['status'])}] S{bug['severity']} — {_truncate(bug['title'])}"
+        list_entry(
+            f"BUG-{int(bug['id']):03d} · {_truncate(bug['title'])}",
+            f"{_status_badge(bug['status'])} · Severity {bug['severity']}",
+        )
         for bug in page_items
     ]
-    embed.description = "\n".join(lines)
-    embed.set_footer(text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(bugs)} bugs")
+    embed.description += "\n\n" + "\n\n".join(lines)
+    set_surface_footer(
+        embed,
+        "bugs",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(bugs)} shown",
+    )
     return embed
 
 
