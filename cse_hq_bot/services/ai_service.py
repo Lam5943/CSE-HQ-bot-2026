@@ -223,7 +223,10 @@ class AIService:
         content = response.text
         if web_records:
             sources = "\n".join(
-                f"- [{record.source_id}] {record.title}: {record.url}"
+                (
+                    f"- [{record.source_id}] "
+                    f"{self._safe_web_source_title(record.title)} — <{record.url}>"
+                )
                 for record in web_records
                 if record.url
             )
@@ -236,6 +239,11 @@ class AIService:
             invalid_source_refs=invalid,
             retrieval_strategy=strategy,
         )
+
+    @staticmethod
+    def _safe_web_source_title(value: object) -> str:
+        text = " ".join(str(value or "Web result").split())
+        return text.replace("@", "@\u200b")[:180] or "Web result"
 
     def _retrieve_records(self, actor: Actor, plan: RetrievalPlan) -> list[RetrievedContextRecord]:
         strategy = plan.strategy
