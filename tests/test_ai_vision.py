@@ -6,8 +6,8 @@ import pytest
 
 from cse_hq_bot.ai.base import AIImage, AIMessage, AIProviderResponse
 from cse_hq_bot.ai.discord_image_input import (
-    MAX_IMAGES_PER_MESSAGE,
     MAX_IMAGE_BYTES,
+    MAX_IMAGES_PER_MESSAGE,
     MAX_TOTAL_IMAGE_BYTES,
     extract_ai_images,
 )
@@ -111,13 +111,13 @@ def test_discord_image_input_enforces_count_and_size_limits():
         "first.png",
         PNG_BYTES,
         content_type="image/png",
-        declared_size=7 * 1024 * 1024,
+        declared_size=MAX_TOTAL_IMAGE_BYTES // 2,
     )
     second = FakeAttachment(
         "second.png",
         PNG_BYTES,
         content_type="image/png",
-        declared_size=6 * 1024 * 1024,
+        declared_size=(MAX_TOTAL_IMAGE_BYTES // 2) + 1,
     )
     with pytest.raises(InvalidInputError, match="12 MB"):
         asyncio.run(extract_ai_images([first, second]))
