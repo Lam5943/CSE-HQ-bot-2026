@@ -209,7 +209,11 @@ class ServiceContainer:
 
 def build_ai_provider(config: Config):
     if config.ai_provider == "groq":
-        primary = GroqProvider(config.groq_api_key, config.groq_model)
+        primary = GroqProvider(
+            config.groq_api_key,
+            config.groq_model,
+            max_output_tokens=getattr(config, "groq_max_output_tokens", 700),
+        )
     elif config.ai_provider == "gemini":
         primary = GeminiProvider(config.gemini_api_key, config.ai_model)
     elif config.ai_provider == "fake":

@@ -399,6 +399,22 @@ def test_router_does_not_retry_timeout():
     assert router.metrics["primary_retry"] == 0
 
 
+def test_router_does_not_retry_oversized_output_quota():
+    primary = _RecordingProvider(error=AIRateLimitError(
+        "Groq request exceeds OTPM", retryable=False,
+        quota_metric="OTPM", quota_limit=1000, quota_requested=1663,
+    ))
+    router = AIProviderRouter(
+        primary, None, fallback_enabled=False,
+        primary_retry_count=2, primary_retry_delay_seconds=0,
+    )
+
+    with pytest.raises(AIRateLimitError):
+        _run_router(router)
+    assert len(primary.calls) == 1
+    assert router.metrics["primary_retry"] == 0
+
+
 def test_router_dual_failure_is_controlled_and_never_loops():
     primary = _RecordingProvider(error=AITimeoutError("slow"))
     fallback = _RecordingProvider(error=AIRateLimitError("limited"))
@@ -482,6 +498,7 @@ def test_factory_configuration_disabled_enabled_missing_and_invalid(monkeypatch)
 def test_load_config_reads_fallback_settings(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "groq-placeholder")
     monkeypatch.setenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setenv("GROQ_MAX_OUTPUT_TOKENS", "650")
     monkeypatch.setenv("AI_PRIMARY_RETRIES", "1")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
     monkeypatch.setenv("AI_FALLBACK_PROVIDER", "openai")
@@ -492,6 +509,7 @@ def test_load_config_reads_fallback_settings(monkeypatch):
 
     assert config.groq_api_key == "groq-placeholder"
     assert config.groq_model == "qwen/qwen3.8-27b"
+    assert config.groq_max_output_tokens == 650
     assert config.ai_primary_retries == 1
     assert config.ai_fallback_enabled is True
     assert config.ai_fallback_provider == "openai"

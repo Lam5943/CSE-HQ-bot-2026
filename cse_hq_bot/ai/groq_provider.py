@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import re
 
 from cse_hq_bot.ai.base import (
     AIImage,
@@ -28,10 +29,16 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_OUTPUT_QUOTA = re.compile(
+    r"output tokens per minute\s*\(OTPM\).*?Limit\s*(\d+).*?Requested\s*(\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class GroqProvider:
-    def __init__(self, api_key: str | None, model_name: str | None):
+    def __init__(
+        self, api_key: str | None, model_name: str | None, *, max_output_tokens: int = 700
+    ):
         if not api_key:
             raise AIConfigurationError(
                 "GROQ_API_KEY is required when AI_PROVIDER=groq"
@@ -42,7 +49,10 @@ class GroqProvider:
             )
         if openai is None or AsyncOpenAI is None:
             raise AIConfigurationError("openai package is not available")
+        if max_output_tokens < 1:
+            raise AIConfigurationError("GROQ_MAX_OUTPUT_TOKENS must be positive")
         self.model_name = model_name
+        self.max_output_tokens = max_output_tokens
         self.last_result = "unknown"
         self.last_error_category: str | None = None
         try:
@@ -93,6 +103,7 @@ class GroqProvider:
                     model=self.model_name,
                     input=request_input,
                     store=False,
+                    max_output_tokens=self.max_output_tokens,
                 ),
                 timeout=timeout_seconds,
             )
@@ -140,6 +151,10 @@ class GroqProvider:
                 "operation": "generate",
                 "result": "failed",
                 "error_category": error.__class__.__name__,
+                "quota_metric": getattr(error, "quota_metric", None),
+                "quota_limit": getattr(error, "quota_limit", None),
+                "quota_requested": getattr(error, "quota_requested", None),
+                "retry_after_seconds": getattr(error, "retry_after_seconds", None),
             },
         )
 
@@ -198,6 +213,17 @@ class GroqProvider:
         ):
             return AIConfigurationError("Groq configuration is invalid")
         if status == 429 or "ratelimit" in name or "rate limit" in message:
+            output_quota = _OUTPUT_QUOTA.search(str(exc))
+            if output_quota:
+                limit, requested = map(int, output_quota.groups())
+                if requested > limit:
+                    return AIRateLimitError(
+                        "Groq request exceeds the output-token quota",
+                        retryable=False,
+                        quota_metric="OTPM",
+                        quota_limit=limit,
+                        quota_requested=requested,
+                    )
             return AIRateLimitError(
                 "Groq rate limit exceeded",
                 retry_after_seconds=self._retry_after_seconds(exc),

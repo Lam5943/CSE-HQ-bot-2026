@@ -34,9 +34,17 @@ class AIRateLimitError(AIProviderError):
         message: str,
         *,
         retry_after_seconds: float | None = None,
+        retryable: bool = True,
+        quota_metric: str | None = None,
+        quota_limit: int | None = None,
+        quota_requested: int | None = None,
     ):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        self.retryable = retryable
+        self.quota_metric = quota_metric
+        self.quota_limit = quota_limit
+        self.quota_requested = quota_requested
 
 
 class AITimeoutError(AIProviderError):

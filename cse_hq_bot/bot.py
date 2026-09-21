@@ -1168,6 +1168,8 @@ class CSEHQBot(commands.Bot):
             if isinstance(error, AIConfigurationError):
                 return "AI provider configuration is unavailable right now."
             if isinstance(error, AIRateLimitError):
+                if not error.retryable:
+                    return "This request exceeds the AI provider's output-token limit. Please contact the bot maintainer."
                 return "AI provider is busy right now. Please try again later."
             if isinstance(error, AITimeoutError):
                 return "AI provider timed out. Please try again."
@@ -1202,6 +1204,10 @@ class CSEHQBot(commands.Bot):
         if isinstance(error, AIConfigurationError):
             return "Cấu hình AI đang có vấn đề nên mình chưa gọi model được." if vietnamese else "The AI configuration is unavailable right now."
         if isinstance(error, AIRateLimitError):
+            if not error.retryable:
+                if vietnamese:
+                    return "Giới hạn output của Groq đang thấp hơn mức request cần. Báo mình để chỉnh cấu hình bot nhé."
+                return "This request exceeds Groq's output-token limit. Ask the bot maintainer to adjust its configuration."
             retry_after = getattr(error, "retry_after_seconds", None)
             wait_seconds = (
                 max(1, int(float(retry_after) + 0.999))
@@ -1216,11 +1222,11 @@ class CSEHQBot(commands.Bot):
                 )
                 if casual_bro:
                     return (
-                        "Mình đang dính rate limit xíu bro 😭 đã retry rồi mà quota "
-                        f"vẫn chưa nhả; thử reply lại sau{wait_hint} nha."
+                        "Mình đang dính rate limit xíu bro 😭 "
+                        f"thử reply lại sau{wait_hint} nha."
                     )
                 return (
-                    "AI đang bị rate limit; mình đã retry rồi, "
+                    "AI đang bị rate limit; "
                     f"thử lại sau{wait_hint} nhé."
                 )
             wait_hint = (
@@ -1229,8 +1235,8 @@ class CSEHQBot(commands.Bot):
                 else " a moment"
             )
             return (
-                "The AI provider is rate-limiting requests right now; I retried, "
-                f"but it still needs{wait_hint}."
+                "The AI provider is rate-limiting requests right now; "
+                f"try again after{wait_hint}."
             )
         if isinstance(error, AITimeoutError):
             return "AI bị timeout mất rồi, thử lại câu này nha." if vietnamese else "The AI request timed out—try that message again."
