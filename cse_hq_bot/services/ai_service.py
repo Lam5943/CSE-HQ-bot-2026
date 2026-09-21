@@ -7,7 +7,7 @@ from cse_hq_bot.ai.action_models import (
     ActionProposalDraft,
     KnownMember,
 )
-from cse_hq_bot.ai.base import AIProvider, RetrievedContextRecord
+from cse_hq_bot.ai.base import AIImage, AIProvider, RetrievedContextRecord
 from cse_hq_bot.errors import (
     AIActionError,
     InvalidTransitionError,
@@ -72,7 +72,9 @@ class AIService:
         question: str,
         history_messages: list[dict],
         known_members: list[KnownMember] | None = None,
+        images: list[AIImage] | None = None,
     ) -> GroundedAnswer:
+        images = images or []
         intent = self.action_intent_detector.detect(question)
         if intent.kind != ActionIntentKind.NONE and self.action_interpreter is None:
             return GroundedAnswer(
@@ -90,6 +92,16 @@ class AIService:
                 source_refs=[],
                 invalid_source_refs=[],
                 retrieval_strategy="action_unsupported",
+            )
+        if intent.kind == ActionIntentKind.SUPPORTED and images:
+            return GroundedAnswer(
+                content=(
+                    "AI Vision v1 is read-only. I can analyze the attached image, "
+                    "but I cannot create a project action from image content yet."
+                ),
+                source_refs=[],
+                invalid_source_refs=[],
+                retrieval_strategy="image_action_unsupported",
             )
         if intent.kind == ActionIntentKind.SUPPORTED:
             if intent.action_type is None:  # pragma: no cover - detector invariant
@@ -131,13 +143,17 @@ class AIService:
             history_messages=history_messages,
             user_question=question,
             context_records=context_records,
+            image_count=len(images),
         )
-        response = await self.provider.generate(
-            system_instruction=prompt.system_instruction,
-            messages=prompt.messages,
-            context_records=prompt.context_records,
-            timeout_seconds=self.request_timeout,
-        )
+        provider_kwargs = {
+            "system_instruction": prompt.system_instruction,
+            "messages": prompt.messages,
+            "context_records": prompt.context_records,
+            "timeout_seconds": self.request_timeout,
+        }
+        if images:
+            provider_kwargs["images"] = images
+        response = await self.provider.generate(**provider_kwargs)
         valid, invalid = self._validate_source_refs(response.text, context_records)
         return GroundedAnswer(
             content=response.text,

@@ -1,7 +1,12 @@
 import asyncio
 import logging
 
-from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
+from cse_hq_bot.ai.base import (
+    AIImage,
+    AIMessage,
+    AIProviderResponse,
+    RetrievedContextRecord,
+)
 from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
 from cse_hq_bot.errors import (
     AIConfigurationError,
@@ -45,13 +50,24 @@ class GeminiProvider:
         messages: list[AIMessage],
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
+        images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
         prompt = render_provider_prompt(system_instruction, messages, context_records)
+        contents: str | list[object] = prompt
+        if images:
+            contents = [
+                types.Part.from_bytes(
+                    data=image.data,
+                    mime_type=image.mime_type,
+                )
+                for image in images
+            ]
+            contents.append(prompt)
         try:
             response = await asyncio.wait_for(
                 self.client.aio.models.generate_content(
                     model=self.model_name,
-                    contents=prompt,
+                    contents=contents,
                     config=types.GenerateContentConfig(
                         http_options=types.HttpOptions(timeout=timeout_seconds * 1000),
                     ),

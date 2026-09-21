@@ -9,6 +9,13 @@ class AIMessage:
 
 
 @dataclass(frozen=True)
+class AIImage:
+    data: bytes
+    mime_type: str
+    filename: str | None = None
+
+
+@dataclass(frozen=True)
 class RetrievedContextRecord:
     source_type: str
     source_id: str
@@ -34,5 +41,6 @@ class AIProvider(Protocol):
         messages: list[AIMessage],
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
+        images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
         """Return an answer for a bounded, grounded prompt."""

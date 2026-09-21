@@ -10,7 +10,7 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Weekly progress reporting
 - Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
 - Grounded project Q&A through a pluggable AI provider
-- A private, grounded assistant with persistent sessions and explicitly confirmed internal actions
+- A private, grounded assistant with persistent sessions, bounded image understanding, and explicitly confirmed internal actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 - Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
@@ -414,6 +414,9 @@ Opens the private AI assistant home panel with:
 - **My Sessions** to list your persisted AI sessions
 - Natural thread conversation for authorized session owners only
 - Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
+- Native Gemini image understanding for PNG, JPEG, and WEBP attachments in private AI threads
+- Up to 4 images per message, 8 MB per image, and 12 MB total inline image bytes per request
+- Image bytes are transient request data; SQLite stores only attachment filename/media-type metadata in conversation history
 
 The assistant is intentionally bounded and permission-aware:
 
@@ -424,7 +427,26 @@ The assistant is intentionally bounded and permission-aware:
 - Confirmation ownership, expiry, session state, permissions, target state, and lifecycle transitions are checked again before execution
 - Only the current user's standup may be submitted or updated; other-user and team-wide standup writes are rejected
 - GitHub, repository, deletion, batch, autonomous, and multi-step actions remain unavailable
+- AI Vision v1 is read-only: image-backed Task/Bug/Meeting/Decision/Standup mutations are rejected rather than inferred from pixels
+- Multimodal requests stay on the Gemini primary provider; the text-only OpenAI fallback is not used for image requests
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
+
+### AI Vision v1
+
+Private AI session messages may include Discord image attachments. CSE-HQ validates
+and reads supported images transiently, then passes their bytes directly to Gemini
+as multimodal input. Supported formats are PNG, JPEG, and WEBP.
+
+Vision input is deliberately bounded:
+
+- Maximum 4 images per message
+- Maximum 8 MB per image
+- Maximum 12 MB total image bytes per request, leaving headroom below Gemini's inline-request limit
+- Attachment bytes are validated against PNG/JPEG/WEBP file signatures
+- Downloads use a bounded timeout and are never written to the project filesystem
+- Raw image bytes are never persisted in SQLite
+- Image text and visual content are treated as untrusted user-provided data, not instructions
+- Image-backed project mutations are not supported in v1; confirmed AI Actions remain text-driven and permission-checked
 
 ### `/weekly_report`
 
