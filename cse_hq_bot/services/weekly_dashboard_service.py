@@ -37,6 +37,7 @@ class WeeklyDashboardService:
         actor: Actor,
         *,
         channel_id: str,
+        project_week: int | None = None,
         weekday: str = "monday",
         publish_time: str = "09:00",
         timezone: str = DEFAULT_TIMEZONE,
@@ -51,6 +52,16 @@ class WeeklyDashboardService:
             raise InvalidInputError(
                 "Weekday must be Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, or Sunday"
             )
+        existing_settings = self.repo.get_settings()
+        if project_week is None:
+            clean_project_week = int((existing_settings or {}).get("project_week", 1))
+        else:
+            try:
+                clean_project_week = int(project_week)
+            except (TypeError, ValueError) as exc:
+                raise InvalidInputError("Project week must be a whole number") from exc
+        if clean_project_week < 1 or clean_project_week > 999:
+            raise InvalidInputError("Project week must be between 1 and 999")
         clean_time = publish_time.strip()
         try:
             hour_text, minute_text = clean_time.split(":", 1)
@@ -78,6 +89,7 @@ class WeeklyDashboardService:
         normalized_time = f"{hour:02d}:{minute:02d}"
         self.repo.set_settings(
             channel_id=clean_channel_id,
+            project_week=clean_project_week,
             weekday=WEEKDAYS[clean_weekday],
             publish_time=normalized_time,
             timezone=timezone,
@@ -165,6 +177,7 @@ class WeeklyDashboardService:
         snapshot["updated_at"] = dashboard.updated_at.isoformat()
         return {
             "week_key": week_key,
+            "project_week": int(settings["project_week"]),
             "channel_id": str(settings["channel_id"]),
             "dashboard": dashboard,
             "snapshot_json": json.dumps(snapshot, sort_keys=True),

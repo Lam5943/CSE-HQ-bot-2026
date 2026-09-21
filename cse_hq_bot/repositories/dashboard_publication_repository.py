@@ -11,6 +11,7 @@ class DashboardPublicationRepository:
         self,
         *,
         channel_id: str,
+        project_week: int,
         weekday: int,
         publish_time: str,
         timezone: str,
@@ -20,17 +21,25 @@ class DashboardPublicationRepository:
             conn.execute(
                 """
                 INSERT INTO dashboard_settings
-                    (id, channel_id, weekday, publish_time, timezone, configured_by)
-                VALUES (1, ?, ?, ?, ?, ?)
+                    (id, channel_id, project_week, weekday, publish_time, timezone, configured_by)
+                VALUES (1, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     channel_id = excluded.channel_id,
+                    project_week = excluded.project_week,
                     weekday = excluded.weekday,
                     publish_time = excluded.publish_time,
                     timezone = excluded.timezone,
                     configured_by = excluded.configured_by,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (str(channel_id), int(weekday), publish_time, timezone, configured_by),
+                (
+                    str(channel_id),
+                    int(project_week),
+                    int(weekday),
+                    publish_time,
+                    timezone,
+                    configured_by,
+                ),
             )
 
     def get_settings(self) -> dict | None:

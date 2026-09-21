@@ -203,6 +203,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS dashboard_settings (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     channel_id TEXT NOT NULL,
+                    project_week INTEGER NOT NULL DEFAULT 1,
                     weekday INTEGER NOT NULL DEFAULT 0,
                     publish_time TEXT NOT NULL DEFAULT '09:00',
                     timezone TEXT NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
@@ -234,6 +235,7 @@ class Database:
             self._ensure_meetings_columns(conn)
             self._ensure_decisions_columns(conn)
             self._ensure_standups_columns(conn)
+            self._ensure_dashboard_settings_columns(conn)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_meeting_notes_meeting_id ON meeting_notes(meeting_id)"
             )
@@ -304,6 +306,13 @@ class Database:
     def _ensure_tasks_columns(self, conn: sqlite3.Connection) -> None:
         if not self._table_has_column(conn, "tasks", "source_meeting_id"):
             conn.execute("ALTER TABLE tasks ADD COLUMN source_meeting_id INTEGER")
+
+    def _ensure_dashboard_settings_columns(self, conn: sqlite3.Connection) -> None:
+        if not self._table_has_column(conn, "dashboard_settings", "project_week"):
+            conn.execute(
+                "ALTER TABLE dashboard_settings "
+                "ADD COLUMN project_week INTEGER NOT NULL DEFAULT 1"
+            )
 
     def _ensure_meetings_columns(self, conn: sqlite3.Connection) -> None:
         expected_columns = {

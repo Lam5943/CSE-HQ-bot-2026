@@ -35,6 +35,36 @@ def test_weekly_dashboard_configuration_requires_leadership(tmp_path):
         )
 
 
+def test_project_week_is_configurable_and_used_in_payload(tmp_path):
+    service, _ = build_service(tmp_path)
+    leader = Actor("leader-1", Role.LEADER)
+    settings = service.configure(
+        leader,
+        channel_id="123456",
+        project_week=7,
+        weekday="monday",
+        publish_time="09:00",
+    )
+
+    assert settings["project_week"] == 7
+    payload = service.prepare_manual(
+        leader,
+        datetime(2026, 9, 22, 14, 30, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")),
+    )
+    assert payload["project_week"] == 7
+    assert payload["week_key"] == "2026-W39"
+
+
+def test_reconfiguring_dashboard_preserves_project_week_when_omitted(tmp_path):
+    service, _ = build_service(tmp_path)
+    leader = Actor("leader-1", Role.LEADER)
+    service.configure(leader, channel_id="123456", project_week=8)
+
+    settings = service.configure(leader, channel_id="654321", publish_time="10:30")
+
+    assert settings["project_week"] == 8
+
+
 def test_weekly_dashboard_due_publish_and_dedupe(tmp_path):
     service, repo = build_service(tmp_path)
     leader = Actor("leader-1", Role.LEADER)
