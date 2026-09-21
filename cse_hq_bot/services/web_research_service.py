@@ -83,27 +83,29 @@ class TavilyWebResearchService:
         }
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(
                     TAVILY_SEARCH_URL,
                     json=payload,
                     headers=headers,
-                ) as response:
-                    if response.status in {401, 403, 432, 433}:
-                        raise AIConfigurationError(
-                            "Web research credentials or quota are unavailable"
-                        )
-                    if response.status == 429:
-                        raise AIRateLimitError("Web research rate limit exceeded")
-                    if response.status >= 500:
-                        raise AIProviderUnavailableError(
-                            "Web research provider is temporarily unavailable"
-                        )
-                    if response.status >= 400:
-                        raise AIProviderUnavailableError(
-                            f"Web research request failed with status {response.status}"
-                        )
-                    data = await response.json()
+                ) as response,
+            ):
+                if response.status in {401, 403, 432, 433}:
+                    raise AIConfigurationError(
+                        "Web research credentials or quota are unavailable"
+                    )
+                if response.status == 429:
+                    raise AIRateLimitError("Web research rate limit exceeded")
+                if response.status >= 500:
+                    raise AIProviderUnavailableError(
+                        "Web research provider is temporarily unavailable"
+                    )
+                if response.status >= 400:
+                    raise AIProviderUnavailableError(
+                        f"Web research request failed with status {response.status}"
+                    )
+                data = await response.json()
         except TimeoutError as exc:
             raise AIProviderUnavailableError("Web research request timed out") from exc
         except aiohttp.ClientError as exc:
