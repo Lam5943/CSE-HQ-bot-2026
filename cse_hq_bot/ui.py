@@ -400,11 +400,18 @@ def build_tasks_embed(
         return embed
     page_items, safe_page, total_pages = _page_slice(tasks, page)
     lines = [
-        f"`#{task['id']}` [{_status_badge(task['status'])}] P{task['priority']} — {_truncate(task['title'])}"
+        list_entry(
+            f"TASK-{int(task['id']):03d} · {_truncate(task['title'])}",
+            f"{_status_badge(task['status'])} · P{task['priority']}",
+        )
         for task in page_items
     ]
-    embed.description = "\n".join(lines)
-    embed.set_footer(text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(tasks)} tasks")
+    embed.description += "\n\n" + "\n\n".join(lines)
+    set_surface_footer(
+        embed,
+        "tasks",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(tasks)} shown",
+    )
     return embed
 
 
