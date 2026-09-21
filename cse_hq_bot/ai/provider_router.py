@@ -85,7 +85,7 @@ class AIProviderRouter:
                 retryable = isinstance(
                     error,
                     (AIRateLimitError, AIProviderUnavailableError),
-                )
+                ) and (not isinstance(error, AIRateLimitError) or error.retryable)
                 has_retry = attempt < self.primary_retry_count
                 if retryable and has_retry:
                     self.metrics["primary_retry"] += 1
