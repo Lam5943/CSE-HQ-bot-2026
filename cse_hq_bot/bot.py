@@ -77,6 +77,14 @@ def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
     return pattern.sub("", str(content or "")).strip()
 
 
+def _is_supported_image_attachment(attachment: object) -> bool:
+    content_type = str(getattr(attachment, "content_type", "") or "").split(";", 1)[0].lower()
+    filename = str(getattr(attachment, "filename", "") or "").lower()
+    return content_type in {"image/png", "image/jpeg", "image/webp"} or filename.endswith(
+        (".png", ".jpg", ".jpeg", ".webp")
+    )
+
+
 class CSEHQBot(commands.Bot):
     def __init__(
         self,
@@ -620,8 +628,12 @@ class CSEHQBot(commands.Bot):
             str(message.channel.id)
         )
         if not session:
-            if self._is_direct_bot_mention(message):
-                await self._handle_public_mention(message)
+            replied_to = await self._referenced_message(message)
+            if self._is_direct_bot_mention(message) or self._is_bot_message(replied_to):
+                await self._handle_public_mention(
+                    message,
+                    replied_to=replied_to,
+                )
                 return
             await self.process_commands(message)
             return
@@ -716,15 +728,110 @@ class CSEHQBot(commands.Bot):
             for user in (getattr(message, "mentions", []) or [])
         )
 
-    async def _handle_public_mention(self, message: discord.Message) -> None:
+    def _is_bot_message(self, message: discord.Message | None) -> bool:
+        bot_user = self.user
+        if bot_user is None or message is None:
+            return False
+        author = getattr(message, "author", None)
+        return int(getattr(author, "id", 0) or 0) == int(bot_user.id)
+
+    async def _referenced_message(
+        self,
+        message: discord.Message,
+    ) -> discord.Message | None:
+        reference = getattr(message, "reference", None)
+        if reference is None:
+            return None
+
+        resolved = getattr(reference, "resolved", None)
+        if resolved is not None and getattr(resolved, "author", None) is not None:
+            return resolved
+
+        message_id = getattr(reference, "message_id", None)
+        fetch_message = getattr(message.channel, "fetch_message", None)
+        if message_id is None or not callable(fetch_message):
+            return None
+        try:
+            return await fetch_message(int(message_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+
+    async def _public_reply_context(
+        self,
+        message: discord.Message,
+        replied_to: discord.Message | None,
+        *,
+        max_hops: int = 4,
+    ) -> tuple[list[dict], list[object]]:
+        bot_user = self.user
+        if bot_user is None or replied_to is None:
+            return [], []
+
+        actor_id = int(getattr(message.author, "id", 0) or 0)
+        bot_id = int(bot_user.id)
+        history_reversed: list[dict] = []
+        inherited_attachments: list[object] = []
+        current = replied_to
+        seen_ids: set[int] = set()
+
+        for _ in range(max_hops):
+            if current is None:
+                break
+            current_id = int(getattr(current, "id", 0) or 0)
+            if current_id and current_id in seen_ids:
+                break
+            if current_id:
+                seen_ids.add(current_id)
+
+            author = getattr(current, "author", None)
+            author_id = int(getattr(author, "id", 0) or 0)
+            if author_id not in {actor_id, bot_id}:
+                break
+
+            content = str(getattr(current, "content", "") or "").strip()
+            if author_id == actor_id:
+                content = strip_bot_mention(content, bot_id)
+                role = "user"
+                inherited_attachments.extend(
+                    attachment
+                    for attachment in (getattr(current, "attachments", []) or [])
+                    if _is_supported_image_attachment(attachment)
+                )
+            else:
+                role = "assistant"
+
+            if content:
+                history_reversed.append(
+                    {
+                        "role": role,
+                        "content": content,
+                    }
+                )
+
+            current = await self._referenced_message(current)
+
+        history_reversed.reverse()
+        inherited_attachments.reverse()
+        return history_reversed, inherited_attachments
+
+    async def _handle_public_mention(
+        self,
+        message: discord.Message,
+        *,
+        replied_to: discord.Message | None = None,
+    ) -> None:
         bot_user = self.user
         if bot_user is None:
             return
         attachments = list(getattr(message, "attachments", []) or [])
+        history_messages, inherited_attachments = await self._public_reply_context(
+            message,
+            replied_to,
+        )
         question = strip_bot_mention(message.content, bot_user.id)
         if not question and not attachments:
             await message.reply(
-                "Có mình đây 👀 Mention mình kèm câu hỏi là được.",
+                "Có mình đây 👀 Mention mình kèm câu hỏi, hoặc reply vào câu trả lời trước của mình là được.",
                 mention_author=False,
             )
             return
@@ -733,12 +840,21 @@ class CSEHQBot(commands.Bot):
         known_members = known_members_from_message(message)
         started = time.monotonic()
         try:
-            images = await extract_ai_images(attachments)
+            inherited_slots = max(0, 3 - len(attachments))
+            image_attachments = [
+                *attachments,
+                *inherited_attachments[:inherited_slots],
+            ]
+            images = (
+                await extract_ai_images(image_attachments)
+                if image_attachments
+                else []
+            )
             question = question or "Analyze the attached image(s)."
             kwargs = {
                 "actor": actor,
                 "question": question,
-                "history_messages": [],
+                "history_messages": history_messages,
                 "known_members": known_members,
                 "allow_actions": False,
             }
@@ -754,9 +870,8 @@ class CSEHQBot(commands.Bot):
 
             chunks = split_ai_response(answer.content)
             if chunks:
-                await message.reply(chunks[0], mention_author=False)
-                for chunk in chunks[1:]:
-                    await message.channel.send(chunk)
+                for chunk in chunks:
+                    await message.reply(chunk, mention_author=False)
             logger.info(
                 "Public mention response completed",
                 extra={

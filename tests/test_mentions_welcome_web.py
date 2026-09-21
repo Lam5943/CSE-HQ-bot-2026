@@ -444,3 +444,163 @@ def test_member_join_sends_branded_welcome(monkeypatch):
     assert call["content"] == "<@321>"
     assert call["embed"].title == "👋 CSE-HQ • Welcome"
     assert "Newbie" in (call["embed"].description or "")
+
+
+class FakeImageAttachment:
+    filename = "idea.png"
+    content_type = "image/png"
+
+    def __init__(self):
+        self._data = b"\x89PNG\r\n\x1a\nvision-context"
+        self.size = len(self._data)
+
+    async def read(self, *, use_cached=False):
+        return self._data
+
+
+class FakeReplyMessage:
+    def __init__(
+        self,
+        *,
+        message_id,
+        author,
+        channel,
+        content="",
+        mentions=None,
+        attachments=None,
+        referenced=None,
+    ):
+        self.id = message_id
+        self.author = author
+        self.channel = channel
+        self.content = content
+        self.mentions = mentions or []
+        self.attachments = attachments or []
+        self.guild = None
+        self.reference = (
+            SimpleNamespace(
+                resolved=referenced,
+                message_id=getattr(referenced, "id", None),
+            )
+            if referenced is not None
+            else None
+        )
+        self.replies = []
+
+    async def reply(self, content, *, mention_author=False):
+        self.replies.append((content, mention_author))
+
+
+def test_reply_to_bot_continues_public_vision_context_without_remention():
+    ai_service = FakeMentionAIService()
+    bot = CSEHQBot(
+        SimpleNamespace(
+            ai_session_service=NoSessionService(),
+            ai_service=ai_service,
+        ),
+        enable_message_content=True,
+    )
+    bot_user = SimpleNamespace(id=999, bot=True)
+    user = SimpleNamespace(
+        bot=False,
+        id=123,
+        name="alice",
+        display_name="Alice",
+    )
+    bot._connection.user = bot_user
+    channel = FakeMentionChannel()
+
+    original = FakeReplyMessage(
+        message_id=1,
+        author=user,
+        channel=channel,
+        content="<@999> phân tích ý tưởng trong ảnh này",
+        mentions=[bot_user],
+        attachments=[FakeImageAttachment()],
+    )
+    bot_response = FakeReplyMessage(
+        message_id=2,
+        author=bot_user,
+        channel=channel,
+        content="Ý tưởng này là hệ thống AI camera chấm công và giám sát.",
+        referenced=original,
+    )
+    follow_up = FakeReplyMessage(
+        message_id=3,
+        author=user,
+        channel=channel,
+        content="pros and cons của cái này đi bro",
+        referenced=bot_response,
+    )
+
+    asyncio.run(bot.on_message(follow_up))
+
+    assert ai_service.kwargs["question"] == "pros and cons của cái này đi bro"
+    assert ai_service.kwargs["history_messages"] == [
+        {
+            "role": "user",
+            "content": "phân tích ý tưởng trong ảnh này",
+        },
+        {
+            "role": "assistant",
+            "content": "Ý tưởng này là hệ thống AI camera chấm công và giám sát.",
+        },
+    ]
+    assert len(ai_service.kwargs["images"]) == 1
+    assert ai_service.kwargs["images"][0].filename == "idea.png"
+    assert ai_service.kwargs["allow_actions"] is False
+    assert follow_up.replies == [("Mention reply", False)]
+
+
+def test_reply_chain_does_not_import_another_users_original_prompt():
+    ai_service = FakeMentionAIService()
+    bot = CSEHQBot(
+        SimpleNamespace(
+            ai_session_service=NoSessionService(),
+            ai_service=ai_service,
+        ),
+        enable_message_content=True,
+    )
+    bot_user = SimpleNamespace(id=999, bot=True)
+    first_user = SimpleNamespace(
+        bot=False,
+        id=111,
+        name="first",
+        display_name="First",
+    )
+    second_user = SimpleNamespace(
+        bot=False,
+        id=222,
+        name="second",
+        display_name="Second",
+    )
+    bot._connection.user = bot_user
+    channel = FakeMentionChannel()
+
+    original = FakeReplyMessage(
+        message_id=10,
+        author=first_user,
+        channel=channel,
+        content="<@999> private-ish context from first user",
+        mentions=[bot_user],
+    )
+    bot_response = FakeReplyMessage(
+        message_id=11,
+        author=bot_user,
+        channel=channel,
+        content="Public bot answer.",
+        referenced=original,
+    )
+    follow_up = FakeReplyMessage(
+        message_id=12,
+        author=second_user,
+        channel=channel,
+        content="explain that answer",
+        referenced=bot_response,
+    )
+
+    asyncio.run(bot.on_message(follow_up))
+
+    assert ai_service.kwargs["history_messages"] == [
+        {"role": "assistant", "content": "Public bot answer."}
+    ]
