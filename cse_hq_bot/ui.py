@@ -131,7 +131,8 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 def build_ai_home_embed() -> discord.Embed:
     embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
     embed.description = (
-        "Private, project-grounded help plus explicitly confirmed internal actions."
+        "Private, project-grounded help from a mentor-style teammate, plus "
+        "explicitly confirmed internal actions."
     )
     embed.add_field(
         name="Capabilities",
@@ -146,6 +147,14 @@ def build_ai_home_embed() -> discord.Embed:
         value=(
             "Read-only by default. No mutation occurs without your explicit "
             "confirmation; GitHub remains read-only."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Style",
+        value=(
+            "Experienced mentor, low-pressure teammate, and lightly funny when the "
+            "situation allows it. CSE-HQ challenges weak assumptions without judging people."
         ),
         inline=False,
     )
@@ -170,7 +179,8 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
     embed.description = (
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
         "analysis, or propose one supported internal action. The assistant is private, "
-        "permission-aware, and project-grounded."
+        "permission-aware, project-grounded, and behaves like an experienced low-pressure "
+        "teammate rather than a manager."
     )
     embed.add_field(
         name="Source of truth",
