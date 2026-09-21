@@ -8,11 +8,13 @@ from cse_hq_bot.ai.base import AIImage, AIMessage, AIProviderResponse
 from cse_hq_bot.ai.discord_image_input import (
     MAX_IMAGES_PER_MESSAGE,
     MAX_IMAGE_BYTES,
+    MAX_TOTAL_IMAGE_BYTES,
     extract_ai_images,
 )
 from cse_hq_bot.ai.gemini_provider import GeminiProvider
+from cse_hq_bot.ai.provider_router import AIProviderRouter
 from cse_hq_bot.db import Database
-from cse_hq_bot.errors import InvalidInputError
+from cse_hq_bot.errors import AITimeoutError, InvalidInputError
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
@@ -104,6 +106,21 @@ def test_discord_image_input_enforces_count_and_size_limits():
     with pytest.raises(InvalidInputError, match="8 MB"):
         asyncio.run(extract_ai_images([oversized]))
     assert oversized.read_calls == 0
+
+    first = FakeAttachment(
+        "first.png",
+        PNG_BYTES,
+        content_type="image/png",
+        declared_size=MAX_TOTAL_IMAGE_BYTES,
+    )
+    second = FakeAttachment(
+        "second.png",
+        PNG_BYTES,
+        content_type="image/png",
+        declared_size=1,
+    )
+    with pytest.raises(InvalidInputError, match="12 MB"):
+        asyncio.run(extract_ai_images([first, second]))
 
 
 class _FakePart:
@@ -216,13 +233,14 @@ def test_session_passes_images_transiently_and_persists_metadata_only(tmp_path: 
             actor=actor,
             session_id=session["id"],
             discord_thread_id="thread-vision",
-            content="read this",
+            content="",
             images=[image],
         )
     )
 
     assert result.content == "I can see the image."
     assert ai_service.kwargs["images"] == [image]
+    assert ai_service.kwargs["question"] == "Analyze the attached image(s)."
     messages = sessions.get_session_messages(actor, session["id"])
     assert "screen.png" in messages[0]["content"]
     assert "image/png" in messages[0]["content"]
@@ -263,3 +281,59 @@ def test_image_backed_mutation_request_is_read_only():
 
     assert answer.retrieval_strategy == "image_action_unsupported"
     assert "read-only" in answer.content
+
+
+def test_prompt_builder_marks_current_images_as_untrusted():
+    payload = PromptBuilder().build(
+        history_messages=[],
+        user_question="What does this screenshot show?",
+        context_records=[],
+        image_count=2,
+    )
+
+    assert "includes 2 image attachment(s)" in payload.system_instruction
+    assert "untrusted user-provided data" in payload.system_instruction
+    assert "Do not claim that no image was provided" in payload.system_instruction
+
+
+class TimeoutPrimary:
+    async def generate(self, **kwargs):
+        raise AITimeoutError("primary timed out")
+
+
+class RecordingFallback:
+    def __init__(self):
+        self.calls = 0
+
+    async def generate(self, **kwargs):
+        self.calls += 1
+        return AIProviderResponse(text="fallback")
+
+
+def test_multimodal_request_never_falls_back_without_image_support():
+    fallback = RecordingFallback()
+    router = AIProviderRouter(
+        TimeoutPrimary(),
+        fallback,
+        fallback_enabled=True,
+    )
+
+    with pytest.raises(AITimeoutError):
+        asyncio.run(
+            router.generate(
+                system_instruction="sys",
+                messages=[AIMessage(role="user", content="analyze")],
+                context_records=[],
+                timeout_seconds=1,
+                images=[
+                    AIImage(
+                        data=PNG_BYTES,
+                        mime_type="image/png",
+                        filename="screen.png",
+                    )
+                ],
+            )
+        )
+
+    assert fallback.calls == 0
+    assert router.metrics["fallback_skipped_multimodal"] == 1
