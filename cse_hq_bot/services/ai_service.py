@@ -206,17 +206,14 @@ class AIService:
         response = await self.provider.generate(**provider_kwargs)
         valid, invalid = self._validate_source_refs(response.text, context_records)
         content = response.text
-        cited_web_records = [
-            record
-            for record in web_records
-            if record.source_id in valid and record.url
-        ]
-        if cited_web_records:
+        if web_records:
             sources = "\n".join(
                 f"- [{record.source_id}] {record.title}: {record.url}"
-                for record in cited_web_records
+                for record in web_records
+                if record.url
             )
-            content = f"{content}\n\n**Web sources**\n{sources}"
+            if sources:
+                content = f"{content}\n\n**Web sources consulted**\n{sources}"
         strategy = f"{plan.strategy}+web" if web_records else plan.strategy
         return GroundedAnswer(
             content=content,
