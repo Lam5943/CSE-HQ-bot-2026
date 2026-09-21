@@ -105,7 +105,7 @@ class AIProviderRouter:
                         retry_after = error.retry_after_seconds
                         if retry_after is not None:
                             retry_delay = max(retry_delay, retry_after)
-                    retry_delay = min(retry_delay, 8.0)
+                    retry_delay = min(retry_delay, 15.0)
                     if retry_delay:
                         await asyncio.sleep(retry_delay)
                     continue
