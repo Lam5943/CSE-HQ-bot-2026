@@ -377,7 +377,22 @@ Opens a private interactive dashboard Embed with:
 - Project overview with status-aware color, goal, phase, sprint, deadline, and Discord timestamp
 - Visual task progress bar plus open/completed counts, bug health, and meeting snapshot
 - Refresh button to reload the latest project data
-- **Manage Dashboard** button (Leader/Co-Lead only through service-layer permissions) to update project management fields
+- **Manage Dashboard** button (Leader/Co-Lead only through service-layer permissions) opens the **Dashboard Control Center** instead of a single five-field modal
+- **Project Info** modal edits project name, description, and current objective
+- **Execution** modal edits phase, sprint, and deadline
+- **Status** uses a dropdown with canonical project states instead of free-form text
+- **Progress & Tasks** opens the task-management surface directly from the dashboard; task lifecycle changes are the only source of dashboard progress
+- **Back to Dashboard** and **Control Center** navigation keep the workflow inside one ephemeral management surface
+
+Dashboard progress is deliberately derived from authoritative task state:
+
+```text
+progress = completed tasks / total tasks
+```
+
+There is no manually editable percentage. Completing or reopening a task changes the
+project dashboard progress on the next render, preventing a separate progress value
+from drifting away from the underlying work.
 
 ### Weekly public dashboard
 
