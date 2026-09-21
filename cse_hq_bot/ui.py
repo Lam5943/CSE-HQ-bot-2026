@@ -136,8 +136,8 @@ def build_ai_home_embed() -> discord.Embed:
     embed.add_field(
         name="Capabilities",
         value=(
-            "Q&A plus bounded Task, Bug, Meeting, Decision, and own Standup "
-            "action proposals"
+            "Grounded Q&A, PNG/JPEG/WEBP image analysis, plus bounded Task, Bug, "
+            "Meeting, Decision, and own Standup action proposals"
         ),
         inline=False,
     )
@@ -168,8 +168,9 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
     embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
     embed.description = (
-        "Ask project questions or propose one supported internal action. The "
-        "assistant is private, permission-aware, and project-grounded."
+        "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
+        "analysis, or propose one supported internal action. The assistant is private, "
+        "permission-aware, and project-grounded."
     )
     embed.add_field(
         name="Source of truth",
