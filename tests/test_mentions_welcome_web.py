@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from cse_hq_bot.ai.base import AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.bot import CSEHQBot, strip_bot_mention
 from cse_hq_bot.models import Actor, Role
-from cse_hq_bot.services.ai_service import AIService
+from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.web_research_service import (
@@ -241,3 +241,100 @@ def test_welcome_embed_matches_cse_hq_design_system():
     assert "Explore CompSci 2026" in (embed.description or "")
     assert "/dashboard" in embed.fields[0].value
     assert embed.footer.text == "CSE-HQ • Welcome • Glad you're here"
+
+
+class FakeMentionAIService:
+    def __init__(self):
+        self.kwargs = None
+
+    async def answer_question(self, **kwargs):
+        self.kwargs = kwargs
+        return GroundedAnswer(
+            content="Mention reply",
+            source_refs=[],
+            invalid_source_refs=[],
+            retrieval_strategy="fallback_search",
+        )
+
+
+class NoSessionService:
+    def get_session_by_thread_id(self, thread_id):
+        return None
+
+
+class FakeMentionChannel:
+    id = 777
+
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content):
+        self.sent.append(content)
+
+
+class FakeMentionMessage:
+    def __init__(self, bot_user):
+        self.author = SimpleNamespace(
+            bot=False,
+            id=123,
+            name="alice",
+            display_name="Alice",
+        )
+        self.channel = FakeMentionChannel()
+        self.content = f"<@{bot_user.id}> explain normalization"
+        self.mentions = [bot_user]
+        self.attachments = []
+        self.guild = None
+        self.replies = []
+
+    async def reply(self, content, *, mention_author=False):
+        self.replies.append((content, mention_author))
+
+
+def test_direct_mention_flows_through_stateless_read_only_ai():
+    ai_service = FakeMentionAIService()
+    bot = CSEHQBot(
+        SimpleNamespace(
+            ai_session_service=NoSessionService(),
+            ai_service=ai_service,
+        )
+    )
+    bot_user = SimpleNamespace(id=999, bot=True)
+    bot._connection.user = bot_user
+    message = FakeMentionMessage(bot_user)
+
+    asyncio.run(bot.on_message(message))
+
+    assert ai_service.kwargs["question"] == "explain normalization"
+    assert ai_service.kwargs["history_messages"] == []
+    assert ai_service.kwargs["allow_actions"] is False
+    assert message.replies == [("Mention reply", False)]
+
+
+class FakeWelcomeChannel:
+    def __init__(self):
+        self.calls = []
+
+    async def send(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def test_member_join_sends_branded_welcome(monkeypatch):
+    bot = CSEHQBot(SimpleNamespace(), welcome_enabled=True)
+    channel = FakeWelcomeChannel()
+    monkeypatch.setattr(bot, "_resolve_welcome_channel", lambda member: channel)
+    member = SimpleNamespace(
+        bot=False,
+        id=321,
+        mention="<@321>",
+        display_name="Newbie",
+        guild=SimpleNamespace(id=654, name="Explore CompSci 2026"),
+    )
+
+    asyncio.run(bot.on_member_join(member))
+
+    assert len(channel.calls) == 1
+    call = channel.calls[0]
+    assert call["content"] == "<@321>"
+    assert call["embed"].title == "👋 CSE-HQ • Welcome"
+    assert "Newbie" in (call["embed"].description or "")
