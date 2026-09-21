@@ -1222,7 +1222,7 @@ class CSEHQBot(commands.Bot):
                 )
                 if casual_bro:
                     return (
-                        "Groq đang giới hạn lượt gọi xíu bro 😭 "
+                        "Mình đang dính rate limit xíu bro 😭 "
                         f"thử reply lại sau{wait_hint} nha."
                     )
                 return (
