@@ -168,14 +168,21 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
         embed.description = "No AI sessions found."
         return embed
     embed.description = "\n".join(
-        f"`#{session['id']}` {session['status']} • thread `{session['discord_thread_id']}` • last active {session['last_active_at']}"
+        (
+            f"<#{session['discord_thread_id']}> • "
+            f"**{str(session['status']).replace('_', ' ').title()}** • "
+            f"last active {session['last_active_at']}"
+        )
         for session in sessions[:10]
     )
     return embed
 
 
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
+    embed = discord.Embed(
+        title="🤖 CSE-HQ • Private AI Session",
+        color=discord.Color.dark_teal(),
+    )
     embed.description = (
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
         "analysis, or propose one supported internal action. The assistant is private, "
