@@ -39,6 +39,7 @@ class HealthService:
         checks: tuple[tuple[str, str, Callable[[], HealthComponent]], ...] = (
             ("discord", "Discord bot", lambda: self._discord(discord_ready)),
             ("database", "Database", self._database),
+            ("groq", "Groq", self._groq),
             ("gemini", "Gemini", self._gemini),
             ("openai_fallback", "OpenAI fallback", self._openai_fallback),
             ("github", "GitHub", self._github),
@@ -94,6 +95,30 @@ class HealthService:
         if not self.db.ping():
             raise RuntimeError("Database connectivity check failed")
         return HealthComponent("database", "Database", HealthState.HEALTHY, "connected")
+
+    def _groq(self) -> HealthComponent:
+        if self.config.ai_provider != "groq":
+            return HealthComponent(
+                "groq", "Groq", HealthState.DISABLED, "not selected"
+            )
+        if not self.config.groq_api_key or not self.config.groq_model:
+            return HealthComponent(
+                "groq", "Groq", HealthState.FAILED, "configuration incomplete"
+            )
+        runtime = self._ai_runtime()
+        if runtime.get("primary_result") == "failed":
+            fallback_available = self._fallback_configured()
+            category = self._safe_category(runtime.get("primary_error_category"))
+            detail = f"latest request failed ({category})"
+            if fallback_available:
+                detail += "; fallback configured"
+            return HealthComponent(
+                "groq",
+                "Groq",
+                HealthState.DEGRADED if fallback_available else HealthState.FAILED,
+                detail,
+            )
+        return HealthComponent("groq", "Groq", HealthState.HEALTHY, "configured")
 
     def _gemini(self) -> HealthComponent:
         if self.config.ai_provider != "gemini":
