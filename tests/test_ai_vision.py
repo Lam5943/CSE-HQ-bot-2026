@@ -111,16 +111,18 @@ def test_discord_image_input_enforces_count_and_size_limits():
         "first.png",
         PNG_BYTES,
         content_type="image/png",
-        declared_size=MAX_TOTAL_IMAGE_BYTES,
+        declared_size=7 * 1024 * 1024,
     )
     second = FakeAttachment(
         "second.png",
         PNG_BYTES,
         content_type="image/png",
-        declared_size=1,
+        declared_size=6 * 1024 * 1024,
     )
     with pytest.raises(InvalidInputError, match="12 MB"):
         asyncio.run(extract_ai_images([first, second]))
+    assert first.read_calls == 1
+    assert second.read_calls == 0
 
 
 class _FakePart:
