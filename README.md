@@ -421,6 +421,7 @@ Opens the private AI assistant home panel with:
 - Human-confirmed proposals for one supported Task, Bug, Meeting, Decision, or own Standup mutation at a time
 - **New Session** to create a private Discord thread-backed AI session named `session của <display name> #<number>`, numbered independently for each user
 - **My Sessions** to list persisted sessions as clickable Discord thread mentions instead of raw thread IDs
+- Deleted Discord AI threads are reconciled to `DELETED` session state and automatically disappear from **My Sessions**; a list-time check also cleans deletions missed while the bot was offline
 - Natural thread conversation for authorized session owners only
 - Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
 - Native multimodal image understanding through Groq or Gemini for PNG, JPEG, and WEBP attachments in private AI threads
