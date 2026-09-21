@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections import Counter
@@ -37,6 +38,8 @@ class AIProviderRouter:
         primary_name: str = "gemini",
         fallback_name: str = "openai",
         fallback_configuration_error: AIConfigurationError | None = None,
+        primary_retry_count: int = 0,
+        primary_retry_delay_seconds: float = 1.0,
     ):
         self.primary = primary
         self.fallback = fallback
@@ -44,6 +47,8 @@ class AIProviderRouter:
         self.primary_name = primary_name
         self.fallback_name = fallback_name
         self.fallback_configuration_error = fallback_configuration_error
+        self.primary_retry_count = max(0, int(primary_retry_count))
+        self.primary_retry_delay_seconds = max(0.0, float(primary_retry_delay_seconds))
         self.metrics: Counter[str] = Counter()
         self.last_primary_result = "unknown"
         self.last_primary_error_category: str | None = None
@@ -68,14 +73,45 @@ class AIProviderRouter:
         }
         if images:
             primary_kwargs["images"] = images
-        try:
-            response = await self.primary.generate(**primary_kwargs)
-        except AIProviderError as primary_error:
-            self._record_primary_failure(primary_error)
+        primary_error: AIProviderError | None = None
+        response: AIProviderResponse | None = None
+        for attempt in range(self.primary_retry_count + 1):
+            try:
+                response = await self.primary.generate(**primary_kwargs)
+                break
+            except AIProviderError as error:
+                primary_error = error
+                self._record_primary_failure(error)
+                retryable = isinstance(
+                    error,
+                    (AIRateLimitError, AIProviderUnavailableError),
+                )
+                has_retry = attempt < self.primary_retry_count
+                if retryable and has_retry:
+                    self.metrics["primary_retry"] += 1
+                    logger.warning(
+                        "AI primary retry scheduled",
+                        extra={
+                            "component": "ai_router",
+                            "operation": "primary_retry",
+                            "result": "retry",
+                            "primary_provider": self.primary_name,
+                            "attempt": attempt + 1,
+                            "error_category": error.__class__.__name__,
+                        },
+                    )
+                    if self.primary_retry_delay_seconds:
+                        await asyncio.sleep(self.primary_retry_delay_seconds)
+                    continue
+                break
+
+        if response is None:
+            if primary_error is None:  # pragma: no cover - defensive invariant
+                raise AIProviderUnavailableError("AI primary provider failed")
             if not isinstance(primary_error, FAILOVER_ELIGIBLE_ERRORS):
-                raise
+                raise primary_error
             if not self.fallback_enabled:
-                raise
+                raise primary_error
             if images:
                 self.metrics["fallback_skipped_multimodal"] += 1
                 logger.warning(
@@ -91,7 +127,7 @@ class AIProviderRouter:
                         "latency_ms": self._elapsed_ms(started),
                     },
                 )
-                raise
+                raise primary_error
             self.metrics["fallback_attempt"] += 1
             logger.warning(
                 "AI fallback attempt",
@@ -167,6 +203,7 @@ class AIProviderRouter:
                 },
             )
             return replace(fallback_response, fallback_used=True)
+
         self.metrics["primary_success"] += 1
         self.last_primary_result = "success"
         self.last_primary_error_category = None
