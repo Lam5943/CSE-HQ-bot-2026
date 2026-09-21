@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from cse_hq_bot.ai.base import AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.bot import CSEHQBot, strip_bot_mention
+from cse_hq_bot.config import load_config
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
 from cse_hq_bot.services.prompt_builder import PromptBuilder
@@ -153,6 +154,48 @@ def test_web_research_intent_detects_explicit_and_fresh_queries():
     assert fresh.required is True
     assert fresh.explicit is False
     assert ordinary.required is False
+
+
+class EmptyWebResearch:
+    configured = True
+
+    async def search(self, query):
+        return []
+
+
+def test_empty_live_search_does_not_fall_back_to_stale_model_knowledge():
+    provider = RecordingProvider("I will guess anyway")
+    service = build_ai_service(provider, EmptyWebResearch())
+
+    answer = asyncio.run(
+        service.answer_question(
+            actor=Actor("member-1", Role.MEMBER),
+            question="Search the web for the latest obscure release",
+            history_messages=[],
+        )
+    )
+
+    assert answer.retrieval_strategy == "web_research_empty"
+    assert "can't verify" in answer.content
+    assert provider.calls == []
+
+
+def test_load_config_reads_welcome_and_web_research_settings(monkeypatch):
+    monkeypatch.setenv("WELCOME_ENABLED", "true")
+    monkeypatch.setenv("WELCOME_CHANNEL_ID", "123456")
+    monkeypatch.setenv("WEB_RESEARCH_ENABLED", "true")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.setenv("WEB_RESEARCH_MAX_RESULTS", "7")
+    monkeypatch.setenv("WEB_RESEARCH_TIMEOUT", "9")
+
+    config = load_config()
+
+    assert config.welcome_enabled is True
+    assert config.welcome_channel_id == "123456"
+    assert config.web_research_enabled is True
+    assert config.tavily_api_key == "tvly-test"
+    assert config.web_research_max_results == 7
+    assert config.web_research_timeout == 9
 
 
 class FakeResponse:
