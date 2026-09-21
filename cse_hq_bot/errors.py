@@ -104,3 +104,19 @@ class GitHubTimeoutError(GitHubProviderError):
 
 class GitHubNotFoundError(GitHubProviderError):
     """Raised when a requested GitHub resource does not exist."""
+
+
+class ForumPublishingError(CSEHQError):
+    """Raised when Forum configuration or publication cannot be completed."""
+
+
+class GitHubWebhookError(CSEHQError):
+    """Base error for inbound GitHub webhook handling."""
+
+
+class GitHubWebhookConfigurationError(GitHubWebhookError):
+    """Raised when an enabled webhook listener is configured incorrectly."""
+
+
+class GitHubWebhookSignatureError(GitHubWebhookError):
+    """Raised when a webhook signature is missing or invalid."""

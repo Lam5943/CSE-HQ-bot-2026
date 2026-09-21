@@ -8,6 +8,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - Grounded project Q&A through a pluggable AI provider
 - A private, grounded assistant with persistent sessions and explicitly confirmed internal actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
+- Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 
 ## Requirements
 
@@ -82,6 +83,12 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 | `GITHUB_REQUEST_TIMEOUT` | No | `15` | GitHub API timeout in seconds. |
 | `GITHUB_CACHE_TTL` | No | `300` | Seconds before cached GitHub data is displayed as stale. |
 | `GITHUB_MAX_RESULTS` | No | `30` | Maximum normalized records fetched per GitHub resource type (capped at 100). |
+| `GITHUB_WEBHOOK_ENABLED` | No | `false` | Start the inbound GitHub webhook endpoint. |
+| `GITHUB_WEBHOOK_SECRET` | Required when webhooks are enabled | — | Shared secret used to verify `X-Hub-Signature-256`. Never commit it. |
+| `WEBHOOK_HOST` | No | `0.0.0.0` | Interface used by the webhook HTTP listener. |
+| `WEBHOOK_PORT` | No | `8080` | Port used by the webhook HTTP listener. |
+| `GITHUB_WEBHOOK_PATH` | No | `/webhooks/github` | Fixed POST path for GitHub webhook deliveries. |
+| `GITHUB_BUG_LABEL` | No | `bug` | Exact, case-insensitive GitHub Issue label used for deterministic bug routing. |
 
 Example development configuration:
 
@@ -98,6 +105,12 @@ AI_MAX_CONTEXT_ITEMS=12
 AI_MAX_HISTORY_MESSAGES=8
 AI_REQUEST_TIMEOUT=20
 AI_ACTION_EXPIRATION_SECONDS=600
+GITHUB_WEBHOOK_ENABLED=false
+GITHUB_WEBHOOK_SECRET=
+WEBHOOK_HOST=0.0.0.0
+WEBHOOK_PORT=8080
+GITHUB_WEBHOOK_PATH=/webhooks/github
+GITHUB_BUG_LABEL=bug
 ```
 
 ## Discord Application Setup
@@ -315,6 +328,15 @@ Opens a private, read-only development context panel backed by the local GitHub 
 
 GitHub v1 never creates, edits, closes, merges, comments, reviews, triggers workflows, or pushes code. GitHub remains authoritative; SQLite only retains a bounded cache so existing data remains available after a failed refresh.
 
+### `/setup forums`
+
+Allows a Leader or Co-Lead to select existing Discord Forum channels for Bugs,
+Pull Requests, and Releases. CSE-HQ validates that the bot can view the channel,
+create public threads, send starter messages, and reply inside threads before it
+saves all three mappings. The optional `test_publish` switch creates a harmless
+test post in each configured Forum. Forum channel IDs are stored in SQLite, never
+in environment variables.
+
 The underlying service layer also supports project, task, bug, meeting, decision, standup, collaboration, reporting, and grounded Q&A operations. Role checks are enforced in the service layer rather than relying only on Discord channel visibility. Additional Discord commands should be added as the command surface is expanded.
 
 ## Configuring Google Gemini AI
@@ -427,6 +449,44 @@ GITHUB_MAX_RESULTS=30
 
 Run `/github`, then use **Sync** as a Leader or Co-Lead. Normal browsing and Gemini retrieval use SQLite-cached normalized records; they do not call GitHub on every interaction. A failed refresh records stale status while preserving the last successful snapshot. Never commit `GITHUB_TOKEN` or log authorization headers.
 
+## Discord Forum Publishing and GitHub Webhooks
+
+Forum publishing is a presentation layer over the existing domain data. Internal
+bug creation and meaningful bug updates publish after the domain transaction has
+succeeded. A failed Discord publication is logged but never rolls back the bug.
+The `forum_publications` mapping enforces one Forum post per entity; later status,
+assignment, PR, and CI events update or reply in the mapped thread instead of
+creating duplicates.
+
+Inbound GitHub webhooks are optional and independent of the read-only cache sync.
+To enable them, configure the single repository, shared secret, listener, and bug
+label:
+
+```dotenv
+GITHUB_REPOSITORY_OWNER=your_owner
+GITHUB_REPOSITORY_NAME=your_repository
+GITHUB_WEBHOOK_ENABLED=true
+GITHUB_WEBHOOK_SECRET=replace_with_a_strong_random_secret
+WEBHOOK_HOST=0.0.0.0
+WEBHOOK_PORT=8080
+GITHUB_WEBHOOK_PATH=/webhooks/github
+GITHUB_BUG_LABEL=bug
+```
+
+Configure the same secret and POST URL in the repository webhook settings. The
+listener verifies `X-Hub-Signature-256`, rejects another repository, and deduplicates
+`X-GitHub-Delivery` before routing supported pull-request, issue, release, workflow,
+and check events. GitHub Issues publish to the Bug Forum only when they contain the
+configured label; internal `BUG-###` and external `GH-ISSUE-###` identities remain
+separate. PR opened/reopened/ready/closed/merged events reuse one post, and CI
+updates reply inside an existing PR thread when available. Release posts are
+created only for `release.published`.
+
+All external titles and bodies are bounded and mentions are neutralized. Raw
+payloads and secrets are never posted or logged. Put the listener behind HTTPS or
+a trusted TLS-terminating reverse proxy in production. This integration performs
+no GitHub writes and uses no AI for event classification.
+
 ## Tests
 
 Run the test suite with:
@@ -435,11 +495,13 @@ Run the test suite with:
 pytest
 ```
 
-Latest AI Actions v2.1 validation (2026-09-21): 218 offline tests passed. Python
+Latest Forum Publishing validation (2026-09-21): 231 offline tests passed. Python
 compilation, Ruff and Bandit on the changed code, `pip check`, `pip-audit`, and
-working-tree plus Git-history secret-signature scans also passed. Repository-wide
-Ruff and Bandit still report pre-existing style findings and five dynamic-SQL
-heuristics outside the files changed for v2.1; no new suppressions were added.
+working-tree plus Git-history secret-signature scans also passed. The intentional
+`0.0.0.0` listener default has a documented Bandit B104 suppression because it is
+deployment-controlled and required by the webhook configuration contract.
+Repository-wide Ruff and Bandit still report pre-existing style findings and five
+dynamic-SQL heuristics outside this milestone.
 
 ## Project Notes
 

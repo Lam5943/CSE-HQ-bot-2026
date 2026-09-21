@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from cse_hq_bot.ai.action_models import KnownMember
 from cse_hq_bot.config import load_config
+from cse_hq_bot.discord_forum_gateway import DiscordForumGateway
 from cse_hq_bot.errors import (
     AIConfigurationError,
     AIProviderError,
@@ -65,6 +66,9 @@ class CSEHQBot(commands.Bot):
         self.container = container
         self.enable_message_content = enable_message_content
         self._message_content_guidance_sent: set[tuple[str, str]] = set()
+        forum_service = getattr(self.container, "forum_publishing_service", None)
+        if forum_service is not None:
+            forum_service.set_gateway(DiscordForumGateway(self))
 
     async def setup_hook(self) -> None:
         @app_commands.command(name="dashboard", description="Show project dashboard")
@@ -252,6 +256,54 @@ class CSEHQBot(commands.Bot):
             except CSEHQError as error:
                 await interaction.response.send_message(str(error), ephemeral=True)
 
+        setup = app_commands.Group(
+            name="setup", description="Configure CSE-HQ integrations"
+        )
+
+        @setup.command(
+            name="forums",
+            description="Configure existing Forum channels for automatic publishing",
+        )
+        @app_commands.describe(
+            bugs="Forum channel for internal and labeled GitHub bugs",
+            pull_requests="Forum channel for GitHub pull requests",
+            releases="Forum channel for published GitHub releases",
+            test_publish="Create one harmless test post in each configured Forum",
+        )
+        async def setup_forums(
+            interaction: discord.Interaction,
+            bugs: discord.ForumChannel,
+            pull_requests: discord.ForumChannel,
+            releases: discord.ForumChannel,
+            test_publish: bool = False,
+        ) -> None:
+            actor = resolve_actor_from_interaction(interaction)
+            try:
+                await self.container.forum_publishing_service.configure_forums(
+                    actor,
+                    {
+                        "bug": str(bugs.id),
+                        "pull_request": str(pull_requests.id),
+                        "release": str(releases.id),
+                    },
+                )
+                test_threads: list[str] = []
+                if test_publish:
+                    for forum_kind in ("bug", "pull_request", "release"):
+                        test_threads.append(
+                            await self.container.forum_publishing_service.test_publish(
+                                actor, forum_kind
+                            )
+                        )
+                message = "Forum publishing configuration saved."
+                if test_threads:
+                    message += " Test posts: " + ", ".join(
+                        f"<#{thread_id}>" for thread_id in test_threads
+                    )
+                await interaction.response.send_message(message, ephemeral=True)
+            except CSEHQError as error:
+                await interaction.response.send_message(str(error), ephemeral=True)
+
         self.tree.add_command(dashboard)
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
@@ -261,6 +313,19 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(standup)
         self.tree.add_command(ai)
         self.tree.add_command(github)
+        self.tree.add_command(setup)
+        webhook_server = getattr(self.container, "github_webhook_server", None)
+        if webhook_server is not None:
+            await webhook_server.start()
+
+    async def close(self) -> None:
+        webhook_server = getattr(self.container, "github_webhook_server", None)
+        if webhook_server is not None:
+            await webhook_server.stop()
+        forum_service = getattr(self.container, "forum_publishing_service", None)
+        if forum_service is not None:
+            await forum_service.close()
+        await super().close()
 
     async def on_message(self, message: discord.Message) -> None:  # pragma: no cover - exercised via unit helpers
         if message.author.bot:
