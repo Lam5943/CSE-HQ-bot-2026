@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -64,8 +65,9 @@ class TavilyWebResearchService:
         if not self.api_key:
             raise AIConfigurationError("TAVILY_API_KEY is required for web research")
 
+        normalized_query = " ".join(str(query or "").split())[:1500]
         payload = {
-            "query": query,
+            "query": normalized_query,
             "search_depth": "basic",
             "max_results": self.max_results,
             "topic": "general",
@@ -120,7 +122,10 @@ class TavilyWebResearchService:
             title = str(item.get("title") or "Web result").strip()
             url = str(item.get("url") or "").strip()
             snippet = str(item.get("content") or "").strip()
-            if not url or not snippet:
+            parsed_url = urlparse(url)
+            if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+                continue
+            if not snippet:
                 continue
             records.append(
                 RetrievedContextRecord(
