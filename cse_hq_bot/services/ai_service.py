@@ -192,6 +192,16 @@ class AIService:
                     invalid_source_refs=[],
                     retrieval_strategy="web_research_failed",
                 )
+            if not web_records:
+                return GroundedAnswer(
+                    content=(
+                        "I searched the live web but found no usable sources for that "
+                        "request, so I can't verify a current answer."
+                    ),
+                    source_refs=[],
+                    invalid_source_refs=[],
+                    retrieval_strategy="web_research_empty",
+                )
             context_records = [*context_records, *web_records]
 
         prompt = self.prompt_builder.build(
