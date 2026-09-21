@@ -33,7 +33,12 @@ from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
-from cse_hq_bot.ui_theme import list_entry, metric_value, set_surface_footer, surface_embed
+from cse_hq_bot.ui_theme import (
+    list_entry,
+    metric_value,
+    set_surface_footer,
+    surface_embed,
+)
 
 logger = logging.getLogger(__name__)
 
