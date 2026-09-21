@@ -52,7 +52,7 @@ def test_build_dashboard_embed_contains_management_fields():
         meetings_total=2,
     )
     embed = build_dashboard_embed(dashboard)
-    assert embed.title == "🛰️ Alpha • Command Center"
+    assert embed.title == "🛰️ CSE-HQ • Project Command Center"
     assert "> Project summary" in (embed.description or "")
     assert "On Track" in (embed.description or "")
     assert "Execution" in (embed.description or "")
@@ -66,7 +66,7 @@ def test_build_dashboard_embed_contains_management_fields():
     assert field_values["🐞 Bugs"] == "**1**\nOpen"
     assert field_values["📅 Deadline"] == "**2026-10-10**"
     assert field_values["📦 Scope"] == "10 tasks · 3 bugs"
-    assert embed.footer.text == "CSE-HQ • Live project overview"
+    assert embed.footer.text == "CSE-HQ • Project • Live overview"
     assert embed.timestamp == dashboard.updated_at
 
 def test_build_weekly_dashboard_embed_is_public_snapshot():
@@ -87,17 +87,17 @@ def test_build_weekly_dashboard_embed_is_public_snapshot():
         meetings_total=2,
     )
     embed = build_weekly_dashboard_embed(dashboard, "2026-W39")
-    assert embed.title == "📆 Alpha • Weekly Pulse"
+    assert embed.title == "📆 CSE-HQ • Weekly Pulse"
     assert "2026-W39" in (embed.description or "")
     assert "Team snapshot" in (embed.description or "")
-    assert embed.footer.text == "CSE-HQ • Weekly pulse • 2026-W39"
+    assert embed.footer.text == "CSE-HQ • Project • Weekly Pulse • 2026-W39"
 
 
 def test_build_tasks_and_bugs_embed_empty_states():
     task_embed = build_tasks_embed([])
     bug_embed = build_bugs_embed([], show_all=False)
-    assert task_embed.description == "No tasks found."
-    assert bug_embed.description == "No bugs found."
+    assert "No tasks found." in (task_embed.description or "")
+    assert "No bugs found." in (bug_embed.description or "")
 
 
 def test_build_tasks_embed_paginates_and_shows_scope():
@@ -106,11 +106,11 @@ def test_build_tasks_embed_paginates_and_shows_scope():
         for index in range(1, 14)
     ]
     embed = build_tasks_embed(tasks, page=1, mode_label="Accessible Tasks", filters_label="status:todo")
-    assert embed.fields[0].name == "Scope"
+    assert embed.fields[0].name == "📚 Scope"
     assert embed.fields[0].value == "Accessible Tasks"
     assert embed.fields[1].value == "status:todo"
     assert "Task 9" in (embed.description or "")
-    assert embed.footer.text == "Page 2/2 • Showing 5/13 tasks"
+    assert embed.footer.text == "CSE-HQ • Tasks • Page 2/2 • 5/13 shown"
 
 
 def test_build_bugs_embed_paginates_and_shows_filter_metadata():
@@ -119,10 +119,10 @@ def test_build_bugs_embed_paginates_and_shows_filter_metadata():
         for index in range(1, 12)
     ]
     embed = build_bugs_embed(bugs, show_all=True, page=1, filters_label="severity:3")
-    assert embed.fields[0].name == "Filters"
+    assert embed.fields[0].name == "🔎 Filters"
     assert embed.fields[0].value == "severity:3"
     assert "Bug 9" in (embed.description or "")
-    assert embed.footer.text == "Page 2/2 • Showing 3/11 bugs"
+    assert embed.footer.text == "CSE-HQ • Bugs • Page 2/2 • 3/11 shown"
 
 
 def test_pagination_state_handles_empty_bounds_and_stale_pages():
@@ -215,7 +215,7 @@ def test_build_standup_embed_empty_and_populated_states():
         {"previous": "Yesterday work", "current": "Today work", "blockers": "", "date": "2026-09-20"},
         [{"date": "2026-09-20", "user_id": "u1", "current": "Today work"}],
     )
-    assert empty_embed.description == "No standups found."
+    assert "No standups found." in (empty_embed.description or "")
     assert populated.fields[0].value == "Submitted"
     assert "u1" in (populated.description or "")
 
@@ -226,7 +226,7 @@ def test_build_ai_home_and_sessions_embeds_and_chunking():
         {"id": 1, "status": "ACTIVE", "discord_thread_id": "123", "last_active_at": "2026-09-20 12:00:00"}
     ])
     chunks = split_ai_response("Paragraph one.\n\nParagraph two with TASK-001 and details." * 40, limit=120)
-    assert home.title == "CSE-HQ AI Assistant"
+    assert home.title == "🤖 CSE-HQ • AI Workspace"
     assert "Read-only" in home.fields[1].value
     assert "<#123>" in (sessions.description or "")
     assert "thread `123`" not in (sessions.description or "")
@@ -253,7 +253,7 @@ def test_build_ai_action_embed_states_no_mutation_before_confirmation():
 
     embed = build_ai_action_embed(proposal)
 
-    assert embed.title == "🤖 AI Action Proposal"
+    assert embed.title == "🤖 CSE-HQ • Action Proposal"
     assert "TASK-014" in (embed.description or "")
     assert "No project data has changed" in embed.fields[2].value
 

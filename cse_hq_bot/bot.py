@@ -404,16 +404,16 @@ class CSEHQBot(commands.Bot):
 
         @app_commands.command(
             name="weekly_dashboard",
-            description="Publish this week's dashboard snapshot to the configured team channel",
+            description="Publish or refresh this week's dashboard snapshot in the configured team channel",
         )
         async def weekly_dashboard(interaction: discord.Interaction) -> None:
             actor = resolve_actor_from_interaction(interaction)
             try:
                 payload = self.container.weekly_dashboard_service.prepare_manual(actor)
                 await interaction.response.defer(ephemeral=True)
-                message = await self._publish_weekly_dashboard(payload)
+                message = await self._publish_weekly_dashboard(payload, replace_existing=True)
                 await interaction.followup.send(
-                    f"Published {payload['week_key']} weekly dashboard: {message.jump_url}",
+                    f"Refreshed {payload['week_key']} weekly dashboard: {message.jump_url}",
                     ephemeral=True,
                 )
             except CSEHQError as error:
@@ -467,7 +467,12 @@ class CSEHQBot(commands.Bot):
         if webhook_server is not None:
             await webhook_server.start()
 
-    async def _publish_weekly_dashboard(self, payload: dict) -> discord.Message:
+    async def _publish_weekly_dashboard(
+        self,
+        payload: dict,
+        *,
+        replace_existing: bool = False,
+    ) -> discord.Message:
         channel_id = int(payload["channel_id"])
         channel = self.get_channel(channel_id)
         if channel is None:
@@ -486,12 +491,39 @@ class CSEHQBot(commands.Bot):
                 "CSE-HQ cannot send messages in the configured weekly dashboard channel"
             )
 
-        message = await channel.send(
-            embed=build_weekly_dashboard_embed(
-                payload["dashboard"],
-                payload["week_key"],
-            )
+        embed = build_weekly_dashboard_embed(
+            payload["dashboard"],
+            payload["week_key"],
         )
+        existing = payload.get("existing_publication")
+        if replace_existing and existing is not None:
+            same_channel = str(existing.get("channel_id")) == str(channel.id)
+            if same_channel:
+                try:
+                    existing_message = await channel.fetch_message(
+                        int(existing["message_id"])
+                    )
+                    message = await existing_message.edit(embed=embed)
+                    self.container.weekly_dashboard_service.replace_publication(
+                        week_key=payload["week_key"],
+                        channel_id=str(channel.id),
+                        message_id=str(message.id),
+                        snapshot_json=payload["snapshot_json"],
+                    )
+                    return message
+                except discord.NotFound:
+                    pass
+
+            message = await channel.send(embed=embed)
+            self.container.weekly_dashboard_service.replace_publication(
+                week_key=payload["week_key"],
+                channel_id=str(channel.id),
+                message_id=str(message.id),
+                snapshot_json=payload["snapshot_json"],
+            )
+            return message
+
+        message = await channel.send(embed=embed)
         recorded = self.container.weekly_dashboard_service.record_publication(
             week_key=payload["week_key"],
             channel_id=str(channel.id),
@@ -515,7 +547,6 @@ class CSEHQBot(commands.Bot):
                 f"Weekly dashboard {payload['week_key']} has already been published"
             )
         return message
-
     async def _weekly_dashboard_loop(self) -> None:
         while not self.is_closed():
             try:

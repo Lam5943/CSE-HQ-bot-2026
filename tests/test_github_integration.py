@@ -482,8 +482,8 @@ def test_github_ui_embeds_show_cache_and_pagination():
     assert "acme/project" in overview.description
     assert overview.fields[3].value == "SUCCESS • FRESH • Last synced: now"
     assert "#9" in issues.description
-    assert issues.footer.text == "Cached GitHub data • Page 2/2"
-    assert issue_detail.title.startswith("🐛 Issue #1")
+    assert issues.footer.text == "CSE-HQ • GitHub • Cached data • Page 2/2"
+    assert issue_detail.title == "🐙 CSE-HQ • Issue #1"
     assert pull_detail.fields[2].value == "APPROVED"
     assert pull_detail.fields[3].value == "PASSING"
 

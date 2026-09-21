@@ -70,6 +70,29 @@ class DashboardPublicationRepository:
             return False
         return True
 
+    def upsert_publication(
+        self,
+        *,
+        week_key: str,
+        channel_id: str,
+        message_id: str,
+        snapshot_json: str,
+    ) -> None:
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO dashboard_publications
+                    (week_key, channel_id, message_id, snapshot_json, published_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(week_key) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    message_id = excluded.message_id,
+                    snapshot_json = excluded.snapshot_json,
+                    published_at = CURRENT_TIMESTAMP
+                """,
+                (week_key, str(channel_id), str(message_id), snapshot_json),
+            )
+
     def list_recent_publications(self, limit: int = 12) -> list[dict]:
         safe_limit = max(1, min(int(limit), 52))
         with self.db.connect() as conn:

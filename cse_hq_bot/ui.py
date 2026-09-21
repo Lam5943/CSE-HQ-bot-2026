@@ -33,6 +33,12 @@ from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
+from cse_hq_bot.ui_theme import (
+    list_entry,
+    metric_value,
+    set_surface_footer,
+    surface_embed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,25 +64,27 @@ def build_health_embed(report: HealthReport) -> discord.Embed:
         HealthState.DISABLED: "➖",
         HealthState.FAILED: "❌",
     }
-    embed = discord.Embed(
-        title="CSE-HQ Health",
+    embed = surface_embed(
+        "health",
         description=(
-            f"Overall: **{report.overall.value}**\n"
-            f"Application version: `{report.version}`"
+            f"### {icons[report.overall]} {report.overall.value}\n"
+            f"Application version `{report.version}`"
         ),
         color=colors[report.overall],
     )
     for component in report.components:
         embed.add_field(
-            name=component.label,
+            name=f"{icons[component.state]} {component.label}",
             value=(
-                f"{icons[component.state]} **{component.state.value}** — "
+                f"**{component.state.value}**\n"
                 f"{component.detail}"
             )[:1024],
             inline=False,
         )
-    embed.set_footer(
-        text=f"Checked {report.checked_at.isoformat(timespec='seconds')}"
+    set_surface_footer(
+        embed,
+        "health",
+        detail=f"Checked {report.checked_at.isoformat(timespec='seconds')}",
     )
     return embed
 
@@ -129,13 +137,14 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 
 
 def build_ai_home_embed() -> discord.Embed:
-    embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
+    embed = surface_embed("ai", description="### Private teammate workspace")
     embed.description = (
-        "Private, project-grounded help from a mentor-style teammate, plus "
-        "explicitly confirmed internal actions."
+        "### Private teammate workspace\n"
+        "Project-grounded help from a mentor-style teammate, plus explicitly "
+        "confirmed internal actions."
     )
     embed.add_field(
-        name="Capabilities",
+        name="🧠 Capabilities",
         value=(
             "Grounded Q&A, PNG/JPEG/WEBP image analysis, plus bounded Task, Bug, "
             "Meeting, Decision, and own Standup action proposals"
@@ -143,7 +152,7 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Boundaries",
+        name="🛡️ Boundaries",
         value=(
             "Read-only by default. No mutation occurs without your explicit "
             "confirmation; GitHub remains read-only."
@@ -151,21 +160,23 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Style",
+        name="✨ Personality",
         value=(
             "Experienced mentor, low-pressure teammate, and lightly funny when the "
             "situation allows it. CSE-HQ challenges weak assumptions without judging people."
         ),
         inline=False,
     )
-    embed.add_field(name="Actions", value="New Session • My Sessions", inline=False)
+    embed.add_field(name="⚡ Actions", value="New Session • My Sessions", inline=False)
+    set_surface_footer(embed, "ai", detail="New Session • My Sessions")
     return embed
 
 
 def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
-    embed = discord.Embed(title="My AI Sessions", color=discord.Color.blurple())
+    embed = surface_embed("ai", title="My Sessions")
     if not sessions:
-        embed.description = "No AI sessions found."
+        embed.description = "### Your private sessions\n> No AI sessions found."
+        set_surface_footer(embed, "ai", detail="Private threads")
         return embed
     embed.description = "\n".join(
         (
@@ -175,52 +186,58 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
         )
         for session in sessions[:10]
     )
+    set_surface_footer(embed, "ai", detail="Private threads")
     return embed
 
 
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(
-        title="🤖 CSE-HQ • Private AI Session",
-        color=discord.Color.dark_teal(),
+    embed = surface_embed(
+        "ai",
+        title="Private Session",
+        description="### Ask naturally",
     )
     embed.description = (
+        "### Ask naturally\n"
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
         "analysis, or propose one supported internal action. The assistant is private, "
         "permission-aware, project-grounded, and behaves like an experienced low-pressure "
         "teammate rather than a manager."
     )
     embed.add_field(
-        name="Source of truth",
+        name="📚 Source of truth",
         value="Current CSE-HQ project records always win over prior AI replies.",
         inline=False,
     )
     embed.add_field(
-        name="Boundaries",
+        name="🛡️ Boundaries",
         value=(
             "Actions require Confirm, expire automatically, and are revalidated "
             "before execution. GitHub remains read-only."
         ),
         inline=False,
     )
+    set_surface_footer(embed, "ai", detail=f"Session #{session['id']}")
     return embed
 
 
 def build_ai_action_embed(proposal: ActionProposal) -> discord.Embed:
-    embed = discord.Embed(
-        title="🤖 AI Action Proposal",
-        description=proposal.summary,
+    embed = surface_embed(
+        "ai",
+        title="Action Proposal",
+        description=f"### Proposed change\n{proposal.summary}",
         color=discord.Color.gold(),
     )
-    embed.add_field(name="Status", value=proposal.status, inline=True)
-    embed.add_field(name="Expires", value=proposal.expires_at, inline=True)
+    embed.add_field(name="📌 Status", value=proposal.status, inline=True)
+    embed.add_field(name="⏳ Expires", value=proposal.expires_at, inline=True)
     embed.add_field(
-        name="Safety",
+        name="🛡️ Safety",
         value=(
             "No project data has changed. The action executes only after the proposal "
             "owner presses Confirm, and permissions/state are checked again."
         ),
         inline=False,
     )
+    set_surface_footer(embed, "ai", detail="Confirm or Cancel")
     return embed
 
 
@@ -321,9 +338,11 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
     deadline = _trim(dashboard.deadline)
     status = _trim(dashboard.status)
 
-    embed = discord.Embed(
-        title=f"🛰️ {dashboard.name} • Command Center",
+    embed = surface_embed(
+        "project",
+        title="Project Command Center",
         description=(
+            f"### {dashboard.name}\n"
             f"> {description}\n\n"
             f"{status_icon} **{status}**  ·  🧭 {phase}  ·  🏃 {sprint}"
         ),
@@ -354,7 +373,7 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
         value=f"{dashboard.task_total} tasks · {dashboard.bug_total} bugs",
         inline=True,
     )
-    embed.set_footer(text="CSE-HQ • Live project overview")
+    set_surface_footer(embed, "project", detail="Live overview")
     return embed
 
 def build_weekly_dashboard_embed(
@@ -363,9 +382,13 @@ def build_weekly_dashboard_embed(
 ) -> discord.Embed:
     embed = build_dashboard_embed(dashboard)
     description = _trim(dashboard.description, default="No project description yet.")
-    embed.title = f"📆 {dashboard.name} • Weekly Pulse"
-    embed.description = f"**{week_key}** · Team snapshot\n> {description}"
-    embed.set_footer(text=f"CSE-HQ • Weekly pulse • {week_key}")
+    embed.title = "📆 CSE-HQ • Weekly Pulse"
+    embed.description = (
+        f"### {dashboard.name} · {week_key}\n"
+        f"> {description}\n\n"
+        "Team snapshot for the current ISO week."
+    )
+    set_surface_footer(embed, "project", detail=f"Weekly Pulse • {week_key}")
     return embed
 
 
@@ -377,33 +400,41 @@ def build_tasks_embed(
     filters_label: str = "None",
     stats: dict | None = None,
 ) -> discord.Embed:
-    embed = discord.Embed(title="Task Management", color=discord.Color.green())
+    embed = surface_embed("tasks", description="### Work queue\nTrack ownership, urgency, and execution state.")
     stats = stats or {}
-    embed.add_field(name="Scope", value=mode_label, inline=True)
-    embed.add_field(name="Filters", value=filters_label, inline=True)
-    embed.add_field(name="Total", value=str(len(tasks)), inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
+    embed.add_field(name="🔎 Filters", value=filters_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(tasks), "Tasks"), inline=True)
     if stats:
-        embed.add_field(name="My Tasks", value=str(stats.get("my_tasks", 0)), inline=True)
-        embed.add_field(name="High Priority", value=str(stats.get("high_priority", 0)), inline=True)
-        embed.add_field(name="With Deadline", value=str(stats.get("with_deadline", 0)), inline=True)
+        embed.add_field(name="👤 My Tasks", value=metric_value(stats.get("my_tasks", 0), "Tasks"), inline=True)
+        embed.add_field(name="🔥 High Priority", value=metric_value(stats.get("high_priority", 0), "Tasks"), inline=True)
+        embed.add_field(name="📅 With Deadline", value=metric_value(stats.get("with_deadline", 0), "Tasks"), inline=True)
     if not tasks:
-        embed.description = "No tasks found."
+        embed.description += "\n\n> No tasks found."
+        set_surface_footer(embed, "tasks")
         return embed
     page_items, safe_page, total_pages = _page_slice(tasks, page)
     lines = [
-        f"`#{task['id']}` [{_status_badge(task['status'])}] P{task['priority']} — {_truncate(task['title'])}"
+        list_entry(
+            f"TASK-{int(task['id']):03d} · {_truncate(task['title'])}",
+            f"{_status_badge(task['status'])} · P{task['priority']}",
+        )
         for task in page_items
     ]
-    embed.description = "\n".join(lines)
-    embed.set_footer(text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(tasks)} tasks")
+    embed.description += "\n\n" + "\n\n".join(lines)
+    set_surface_footer(
+        embed,
+        "tasks",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(tasks)} shown",
+    )
     return embed
 
 
 def build_task_detail_embed(task: dict, *, can_modify: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"Task #{task['id']} — {_truncate(task['title'], 120)}",
-        description=task["description"] or "No description.",
-        color=discord.Color.teal(),
+    embed = surface_embed(
+        "tasks",
+        title=f"TASK-{int(task['id']):03d}",
+        description=f"### {_truncate(task['title'], 120)}\n{task['description'] or 'No description.'}",
     )
     embed.add_field(name="Status", value=_status_badge(task["status"]), inline=True)
     embed.add_field(name="Priority", value=f"P{task['priority']}", inline=True)
@@ -420,6 +451,7 @@ def build_task_detail_embed(task: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "tasks", detail=f"TASK-{int(task['id']):03d}")
     return embed
 
 
@@ -431,37 +463,46 @@ def build_bugs_embed(
     filters_label: str = "None",
     stats: dict | None = None,
 ) -> discord.Embed:
-    title = "Bug Tracker (All)" if show_all else "Bug Tracker (Open)"
-    embed = discord.Embed(title=title, color=discord.Color.orange())
+    title = "All Bugs" if show_all else "Open Bugs"
+    embed = surface_embed("bugs", title=title, description="### Defect queue\nSee what is broken, how severe it is, and what needs attention.")
     stats = stats or {}
-    embed.add_field(name="Filters", value=filters_label, inline=True)
-    embed.add_field(name="Total", value=str(len(bugs)), inline=True)
-    embed.add_field(name="Open", value=str(stats.get("open", 0)), inline=True)
+    embed.add_field(name="🔎 Filters", value=filters_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(bugs), "Bugs"), inline=True)
+    embed.add_field(name="🚨 Open", value=metric_value(stats.get("open", 0), "Bugs"), inline=True)
     if stats:
-        embed.add_field(name="Critical", value=str(stats.get("critical", 0)), inline=True)
-        embed.add_field(name="Unassigned", value=str(stats.get("unassigned", 0)), inline=True)
+        embed.add_field(name="🔥 Critical", value=metric_value(stats.get("critical", 0), "Bugs"), inline=True)
+        embed.add_field(name="👤 Unassigned", value=metric_value(stats.get("unassigned", 0), "Bugs"), inline=True)
         embed.add_field(
             name="Resolved",
             value=str(stats.get("by_status", {}).get(BugStatus.RESOLVED.value, 0)),
             inline=True,
         )
     if not bugs:
-        embed.description = "No bugs found."
+        embed.description += "\n\n> No bugs found."
+        set_surface_footer(embed, "bugs")
         return embed
     page_items, safe_page, total_pages = _page_slice(bugs, page)
     lines = [
-        f"`#{bug['id']}` [{_status_badge(bug['status'])}] S{bug['severity']} — {_truncate(bug['title'])}"
+        list_entry(
+            f"BUG-{int(bug['id']):03d} · {_truncate(bug['title'])}",
+            f"{_status_badge(bug['status'])} · Severity {bug['severity']}",
+        )
         for bug in page_items
     ]
-    embed.description = "\n".join(lines)
-    embed.set_footer(text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(bugs)} bugs")
+    embed.description += "\n\n" + "\n\n".join(lines)
+    set_surface_footer(
+        embed,
+        "bugs",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(bugs)} shown",
+    )
     return embed
 
 
 def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"Bug #{bug['id']} — {_truncate(bug['title'], 120)}",
-        description=bug["description"] or "No description.",
+    embed = surface_embed(
+        "bugs",
+        title=f"BUG-{int(bug['id']):03d}",
+        description=f"### {_truncate(bug['title'], 120)}\n{bug['description'] or 'No description.'}",
         color=discord.Color.red(),
     )
     embed.add_field(name="Status", value=_status_badge(bug["status"]), inline=True)
@@ -479,6 +520,7 @@ def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "bugs", detail=f"BUG-{int(bug['id']):03d}")
     return embed
 
 
@@ -488,9 +530,9 @@ def build_meetings_embed(
     page: int = 0,
     mode_label: str = "Upcoming",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Meetings", color=discord.Color.blurple())
-    embed.add_field(name="Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(meetings)), inline=True)
+    embed = surface_embed("meetings", description="### Team syncs\nUpcoming, active, and historical collaboration sessions.")
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(meetings), "Meetings"), inline=True)
     embed.add_field(
         name="Status",
         value=(
@@ -500,17 +542,21 @@ def build_meetings_embed(
         inline=True,
     )
     if not meetings:
-        embed.description = "No meetings found."
+        embed.description += "\n\n> No meetings found."
+        set_surface_footer(embed, "meetings")
         return embed
     page_items, safe_page, total_pages = _page_slice(meetings, page)
-    embed.description = "\n".join(
-        f"`{_meeting_code(meeting)}` "
-        f"[{_status_badge(meeting['status'])}] "
-        f"{_truncate(meeting['title'])} — {_truncate(meeting.get('scheduled_at') or meeting.get('meeting_date') or 'N/A', 40)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{_meeting_code(meeting)} · {_truncate(meeting['title'])}",
+            f"{_status_badge(meeting['status'])} · {_truncate(meeting.get('scheduled_at') or meeting.get('meeting_date') or 'N/A', 40)}",
+        )
         for meeting in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(meetings)} meetings"
+    set_surface_footer(
+        embed,
+        "meetings",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(meetings)} shown",
     )
     return embed
 
@@ -523,10 +569,10 @@ def build_meeting_detail_embed(
     can_manage: bool,
     can_add_note: bool,
 ) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{_meeting_code(meeting)} — {_truncate(meeting['title'], 120)}",
-        description=meeting.get("description") or "No description.",
-        color=discord.Color.dark_teal(),
+    embed = surface_embed(
+        "meetings",
+        title=_meeting_code(meeting),
+        description=f"### {_truncate(meeting['title'], 120)}\n{meeting.get('description') or 'No description.'}",
     )
     embed.add_field(name="Status", value=_status_badge(meeting["status"]), inline=True)
     embed.add_field(
@@ -566,6 +612,7 @@ def build_meeting_detail_embed(
         actions.append("Add Note")
     actions.append("Create Action Task")
     embed.add_field(name="Available Actions", value=", ".join(actions), inline=False)
+    set_surface_footer(embed, "meetings", detail=_meeting_code(meeting))
     return embed
 
 
@@ -575,34 +622,42 @@ def build_decisions_embed(
     page: int = 0,
     mode_label: str = "Browse",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Decisions", color=discord.Color.gold())
-    embed.add_field(name="Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(decisions)), inline=True)
+    embed = surface_embed("decisions", description="### Decision memory\nImportant choices, rationale, and context.")
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(decisions), "Decisions"), inline=True)
     embed.add_field(
-        name="Linked Meetings",
+        name="🔗 Linked Meetings",
         value=str(len([decision for decision in decisions if decision.get("meeting_id")])),
         inline=True,
     )
     if not decisions:
-        embed.description = "No decisions found."
+        embed.description += "\n\n> No decisions found."
+        set_surface_footer(embed, "decisions")
         return embed
     page_items, safe_page, total_pages = _page_slice(decisions, page)
-    embed.description = "\n".join(
-        f"`{_decision_code(decision)}` "
-        f"{_truncate(decision.get('title') or decision.get('summary') or 'Untitled')} "
-        f"— {_truncate(decision.get('decision') or '', 50)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{_decision_code(decision)} · {_truncate(decision.get('title') or decision.get('summary') or 'Untitled')}",
+            _truncate(decision.get("decision") or "", 80),
+        )
         for decision in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(decisions)} decisions"
+    set_surface_footer(
+        embed,
+        "decisions",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(decisions)} shown",
     )
     return embed
 
 
 def build_decision_detail_embed(decision: dict, *, can_edit: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{_decision_code(decision)} — {_truncate(decision.get('title') or 'Untitled', 120)}",
-        description=decision.get("decision") or decision.get("summary") or "No decision text.",
+    embed = surface_embed(
+        "decisions",
+        title=_decision_code(decision),
+        description=(
+            f"### {_truncate(decision.get('title') or 'Untitled', 120)}\n"
+            f"{decision.get('decision') or decision.get('summary') or 'No decision text.'}"
+        ),
         color=discord.Color.gold(),
     )
     embed.add_field(name="Meeting", value=str(decision.get("meeting_id") or "Standalone"), inline=True)
@@ -620,6 +675,7 @@ def build_decision_detail_embed(decision: dict, *, can_edit: bool) -> discord.Em
         value="Edit, Refresh, Back" if can_edit else "Refresh, Back",
         inline=False,
     )
+    set_surface_footer(embed, "decisions", detail=_decision_code(decision))
     return embed
 
 
@@ -630,17 +686,17 @@ def build_standup_embed(
     page: int = 0,
     mode_label: str = "Today's Team",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Standup", color=discord.Color.green())
+    embed = surface_embed("standup", description="### Daily pulse\nCurrent work, momentum, and blockers.")
     embed.add_field(
-        name="Today's Status",
+        name="🙋 Today's Status",
         value="Submitted" if today_entry else "Not submitted",
         inline=True,
     )
-    embed.add_field(name="Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(entries)), inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(entries), "Updates"), inline=True)
     if today_entry:
         embed.add_field(
-            name="My Update",
+            name="📝 My Update",
             value=(
                 f"Previous: {_truncate(today_entry.get('previous') or '', 80)}\n"
                 f"Current: {_truncate(today_entry.get('current') or '', 80)}\n"
@@ -649,16 +705,21 @@ def build_standup_embed(
             inline=False,
         )
     if not entries:
-        embed.description = "No standups found."
+        embed.description += "\n\n> No standups found."
+        set_surface_footer(embed, "standup")
         return embed
     page_items, safe_page, total_pages = _page_slice(entries, page)
-    embed.description = "\n".join(
-        f"`{entry.get('date')}` {entry.get('user_id')} — "
-        f"{_truncate(entry.get('current') or entry.get('update_text') or '', 90)}"
+    embed.description += "\n\n" + "\n\n".join(
+        list_entry(
+            f"{entry.get('user_id')} · {entry.get('date')}",
+            _truncate(entry.get("current") or entry.get("update_text") or "", 100),
+        )
         for entry in page_items
     )
-    embed.set_footer(
-        text=f"Page {safe_page + 1}/{total_pages} • Showing {len(page_items)}/{len(entries)} standups"
+    set_surface_footer(
+        embed,
+        "standup",
+        detail=f"Page {safe_page + 1}/{total_pages} • {len(page_items)}/{len(entries)} shown",
     )
     return embed
 
@@ -1527,12 +1588,18 @@ class TasksView(OwnedView):
 
 
 def build_github_overview_embed(data: dict) -> discord.Embed:
-    embed = discord.Embed(title="🐙 GitHub — CSE-HQ", color=discord.Color.dark_teal())
+    embed = surface_embed("github", description="### Repository pulse")
     repository = data.get("repository")
     if not repository:
-        embed.description = "GitHub cache is empty. A Leader or Co-Lead can run Sync."
+        embed.description = (
+            "### Repository pulse\n"
+            "> GitHub cache is empty. A Leader or Co-Lead can run Sync."
+        )
     else:
-        embed.description = f"Repository: **{repository.get('owner')}/{repository.get('name')}**"
+        embed.description = (
+            "### Repository pulse\n"
+            f"**{repository.get('owner')}/{repository.get('name')}**"
+        )
         embed.add_field(name="Open Issues", value=str(data.get("open_issues", 0)), inline=True)
         embed.add_field(name="Open PRs", value=str(data.get("open_pull_requests", 0)), inline=True)
         embed.add_field(name="Failing Checks", value=str(data.get("failing_checks", 0)), inline=True)
@@ -1546,6 +1613,7 @@ def build_github_overview_embed(data: dict) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "github", detail="Read-only cache")
     return embed
 
 
@@ -1556,7 +1624,11 @@ def build_github_items_embed(mode: str, items: list[dict], page: int = 0) -> dis
         "commits": "🧾 Recent Commits",
         "branches": "🌿 Branches",
     }
-    embed = discord.Embed(title=titles[mode], color=discord.Color.dark_teal())
+    embed = surface_embed(
+        "github",
+        title=titles[mode].split(" ", 1)[-1],
+        description="### Cached repository context",
+    )
     page_items, safe_page, total_pages = _page_slice(items, page)
     if not page_items:
         embed.description = "No cached records found."
@@ -1586,15 +1658,20 @@ def build_github_items_embed(mode: str, items: list[dict], page: int = 0) -> dis
             f"{' • protected' if item.get('protected') else ''}"
             for item in page_items
         )
-    embed.set_footer(text=f"Cached GitHub data • Page {safe_page + 1}/{total_pages}")
+    set_surface_footer(
+        embed,
+        "github",
+        detail=f"Cached data • Page {safe_page + 1}/{total_pages}",
+    )
     return embed
 
 
 def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
     if mode == "issues":
-        embed = discord.Embed(
-            title=f"🐛 Issue #{item['number']} — {_truncate(item.get('title') or '', 180)}",
-            color=discord.Color.dark_teal(),
+        embed = surface_embed(
+            "github",
+            title=f"Issue #{item['number']}",
+            description=f"### {_truncate(item.get('title') or '', 180)}",
             url=item.get("url"),
         )
         embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
@@ -1610,9 +1687,10 @@ def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
             inline=False,
         )
     else:
-        embed = discord.Embed(
-            title=f"🔀 PR #{item['number']} — {_truncate(item.get('title') or '', 180)}",
-            color=discord.Color.dark_teal(),
+        embed = surface_embed(
+            "github",
+            title=f"PR #{item['number']}",
+            description=f"### {_truncate(item.get('title') or '', 180)}",
             url=item.get("url"),
         )
         embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
@@ -1624,7 +1702,11 @@ def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
             value=f"`{item.get('base_branch')}` ← `{item.get('head_branch')}`",
             inline=False,
         )
-    embed.set_footer(text=f"Cached GitHub data • Updated: {item.get('updated_at') or 'unknown'}")
+    set_surface_footer(
+        embed,
+        "github",
+        detail=f"Updated {item.get('updated_at') or 'unknown'}",
+    )
     return embed
 
 
