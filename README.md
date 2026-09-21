@@ -488,12 +488,23 @@ channel:
 @CSE HQ Assistant search the web for the latest Qwen update
 ```
 
-Mention replies are stateless and read-only. They reuse the same actor permissions,
-project grounding, personality policy, image validation, and source validation as
-private AI sessions, but they never create AI Action proposals. If a public mention
-asks CSE-HQ to mutate Tasks, Bugs, Meetings, Decisions, or Standups, the bot explains
-that project changes must go through a private `/ai` session with Confirm/Cancel.
-This prevents a casual public ping from becoming an execution boundary.
+Mention replies are read-only and do not create persistent AI sessions. They reuse
+the same actor permissions, project grounding, personality policy, image validation,
+and source validation as private AI sessions, but they never create AI Action
+proposals.
+
+A Discord reply to a CSE-HQ public answer is treated as a bounded continuation even
+when the user does not mention the bot again. CSE-HQ walks only the direct reply
+chain (up to four messages), keeps context only from the same user and the bot, and
+can transiently re-read supported PNG/JPEG/WEBP attachments from the originating
+user message. This makes follow-ups such as "pros and cons của cái này?" work after
+an image analysis without creating a persistent public-channel memory. Inherited
+images remain bounded by the existing three-image Vision limit.
+
+If a public mention or reply asks CSE-HQ to mutate Tasks, Bugs, Meetings, Decisions,
+or Standups, the bot explains that project changes must go through a private
+`/ai` session with Confirm/Cancel. This prevents a casual public conversation from
+becoming an execution boundary.
 
 ### Read-only Web Research v1
 
