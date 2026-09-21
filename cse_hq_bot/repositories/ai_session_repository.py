@@ -33,7 +33,7 @@ class AISessionRepository:
                 """
                 SELECT id, owner_id, discord_thread_id, status, created_at, last_active_at, closed_at
                 FROM ai_sessions
-                WHERE owner_id = ?
+                WHERE owner_id = ? AND status != 'DELETED'
                 ORDER BY last_active_at DESC, id DESC
                 """,
                 (owner_id,),
@@ -65,6 +65,21 @@ class AISessionRepository:
                 (discord_thread_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def mark_session_deleted(self, session_id: int) -> None:
+        with self.db.connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE ai_sessions
+                SET status = 'DELETED',
+                    closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP),
+                    last_active_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (session_id,),
+            )
+            if cur.rowcount == 0:
+                raise NotFoundError(f"AI session {session_id} not found")
 
     def close_session(self, session_id: int) -> None:
         with self.db.connect() as conn:
