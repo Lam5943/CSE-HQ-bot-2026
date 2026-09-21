@@ -1164,8 +1164,8 @@ class CSEHQBot(commands.Bot):
         style = PersonalityPolicy().infer_style(text)
         vietnamese = bool(
             re.search(
-                r"[ăâđêôơưĂÂĐÊÔƠƯ]|\\b(?:mình|tui|bạn|cái|nha|nhé|không|được|với|"
-                r"cho|thì|vậy|thế|phân tích|đưa)\\b",
+                r"[ăâđêôơưĂÂĐÊÔƠƯ]|\b(?:mình|tui|bạn|cái|nha|nhé|không|được|với|"
+                r"cho|thì|vậy|thế|phân tích|đưa)\b",
                 text,
                 re.IGNORECASE,
             )
