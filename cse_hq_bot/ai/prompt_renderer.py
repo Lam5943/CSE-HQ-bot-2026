@@ -13,7 +13,8 @@ def render_provider_prompt(
     context = "\n".join(
         (
             f"[{record.source_id}] type={record.source_type} title={record.title} "
-            f"timestamp={record.timestamp or 'unknown'} reason={record.retrieval_reason}\n"
+            f"timestamp={record.timestamp or 'unknown'} reason={record.retrieval_reason}"
+            f"{f' url={record.url}' if record.url else ''}\n"
             f"{record.content}"
         )
         for record in context_records
