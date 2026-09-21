@@ -15,6 +15,7 @@ OPERATIONAL_FIELDS = (
     "fallback_provider",
     "latency_ms",
     "record_count",
+    "application_version",
 )
 
 
