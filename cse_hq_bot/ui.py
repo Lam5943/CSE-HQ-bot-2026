@@ -59,11 +59,11 @@ def build_health_embed(report: HealthReport) -> discord.Embed:
         HealthState.DISABLED: "➖",
         HealthState.FAILED: "❌",
     }
-    embed = discord.Embed(
-        title="🩺 CSE-HQ • System Health",
+    embed = surface_embed(
+        "health",
         description=(
-            f"Overall: **{report.overall.value}**\n"
-            f"Application version: `{report.version}`"
+            f"### {icons[report.overall]} {report.overall.value}\n"
+            f"Application version `{report.version}`"
         ),
         color=colors[report.overall],
     )
@@ -76,8 +76,10 @@ def build_health_embed(report: HealthReport) -> discord.Embed:
             )[:1024],
             inline=False,
         )
-    embed.set_footer(
-        text=f"Checked {report.checked_at.isoformat(timespec='seconds')}"
+    set_surface_footer(
+        embed,
+        "health",
+        detail=f"Checked {report.checked_at.isoformat(timespec='seconds')}",
     )
     return embed
 
@@ -1594,7 +1596,11 @@ def build_github_items_embed(mode: str, items: list[dict], page: int = 0) -> dis
         "commits": "🧾 Recent Commits",
         "branches": "🌿 Branches",
     }
-    embed = discord.Embed(title=titles[mode], color=discord.Color.dark_teal())
+    embed = surface_embed(
+        "github",
+        title=titles[mode].split(" ", 1)[-1],
+        description="### Cached repository context",
+    )
     page_items, safe_page, total_pages = _page_slice(items, page)
     if not page_items:
         embed.description = "No cached records found."
@@ -1624,15 +1630,20 @@ def build_github_items_embed(mode: str, items: list[dict], page: int = 0) -> dis
             f"{' • protected' if item.get('protected') else ''}"
             for item in page_items
         )
-    embed.set_footer(text=f"Cached GitHub data • Page {safe_page + 1}/{total_pages}")
+    set_surface_footer(
+        embed,
+        "github",
+        detail=f"Cached data • Page {safe_page + 1}/{total_pages}",
+    )
     return embed
 
 
 def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
     if mode == "issues":
-        embed = discord.Embed(
-            title=f"🐛 Issue #{item['number']} — {_truncate(item.get('title') or '', 180)}",
-            color=discord.Color.dark_teal(),
+        embed = surface_embed(
+            "github",
+            title=f"Issue #{item['number']}",
+            description=f"### {_truncate(item.get('title') or '', 180)}",
             url=item.get("url"),
         )
         embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
@@ -1648,9 +1659,10 @@ def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
             inline=False,
         )
     else:
-        embed = discord.Embed(
-            title=f"🔀 PR #{item['number']} — {_truncate(item.get('title') or '', 180)}",
-            color=discord.Color.dark_teal(),
+        embed = surface_embed(
+            "github",
+            title=f"PR #{item['number']}",
+            description=f"### {_truncate(item.get('title') or '', 180)}",
             url=item.get("url"),
         )
         embed.add_field(name="State", value=item.get("state") or "UNKNOWN", inline=True)
@@ -1662,7 +1674,11 @@ def build_github_detail_embed(mode: str, item: dict) -> discord.Embed:
             value=f"`{item.get('base_branch')}` ← `{item.get('head_branch')}`",
             inline=False,
         )
-    embed.set_footer(text=f"Cached GitHub data • Updated: {item.get('updated_at') or 'unknown'}")
+    set_surface_footer(
+        embed,
+        "github",
+        detail=f"Updated {item.get('updated_at') or 'unknown'}",
+    )
     return embed
 
 
