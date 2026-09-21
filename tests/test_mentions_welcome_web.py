@@ -546,8 +546,7 @@ def test_reply_to_bot_continues_public_vision_context_without_remention():
             "content": "Ý tưởng này là hệ thống AI camera chấm công và giám sát.",
         },
     ]
-    assert len(ai_service.kwargs["images"]) == 1
-    assert ai_service.kwargs["images"][0].filename == "idea.png"
+    assert "images" not in ai_service.kwargs
     assert ai_service.kwargs["allow_actions"] is False
     assert follow_up.replies == [("Mention reply", False)]
 
@@ -604,3 +603,51 @@ def test_reply_chain_does_not_import_another_users_original_prompt():
     assert ai_service.kwargs["history_messages"] == [
         {"role": "assistant", "content": "Public bot answer."}
     ]
+
+
+def test_visual_reply_reuses_originating_image_when_followup_needs_it():
+    ai_service = FakeMentionAIService()
+    bot = CSEHQBot(
+        SimpleNamespace(
+            ai_session_service=NoSessionService(),
+            ai_service=ai_service,
+        ),
+        enable_message_content=True,
+    )
+    bot_user = SimpleNamespace(id=999, bot=True)
+    user = SimpleNamespace(
+        bot=False,
+        id=123,
+        name="alice",
+        display_name="Alice",
+    )
+    bot._connection.user = bot_user
+    channel = FakeMentionChannel()
+
+    original = FakeReplyMessage(
+        message_id=21,
+        author=user,
+        channel=channel,
+        content="<@999> phân tích ảnh này",
+        mentions=[bot_user],
+        attachments=[FakeImageAttachment()],
+    )
+    bot_response = FakeReplyMessage(
+        message_id=22,
+        author=bot_user,
+        channel=channel,
+        content="Mình đã phân tích ảnh.",
+        referenced=original,
+    )
+    follow_up = FakeReplyMessage(
+        message_id=23,
+        author=user,
+        channel=channel,
+        content="chữ ở góc trái trong ảnh là gì bro?",
+        referenced=bot_response,
+    )
+
+    asyncio.run(bot.on_message(follow_up))
+
+    assert len(ai_service.kwargs["images"]) == 1
+    assert ai_service.kwargs["images"][0].filename == "idea.png"

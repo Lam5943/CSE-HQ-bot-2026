@@ -554,6 +554,42 @@ not write in or request Chinese, CSE-HQ retries the generation once with an expl
 language correction. Small Chinese quotes or translation questions do not trigger
 this safeguard.
 
+### Adaptive Conversation Style v2
+
+CSE-HQ adapts presentation to the user's current conversational style without
+persisting a personality profile. The current message has priority, while a few
+recent user messages can preserve obvious address/cadence for short follow-ups.
+
+Examples:
+
+- Casual `bro / bruh / yo` chat may receive light matching slang and occasional
+  `bro`, without repeating it every sentence.
+- Natural Vietnamese `mình/bạn` stays in that register.
+- Formal requests override earlier casual history.
+- Short contextual follow-ups are answered directly instead of being expanded into
+  report-style numbered sections.
+- Headings and long structured breakdowns are reserved for explicit detailed/report
+  requests or genuinely complex answers.
+- CSE-HQ never mirrors insults, slurs, aggression, or fake personal intimacy.
+
+For general questions, brainstorming, and Vision analysis, the assistant does not
+announce missing project records unless the requested claim actually depends on
+CSE-HQ project data.
+
+### Free-provider rate-limit handling
+
+Groq rate-limit responses can include a `retry-after` header. CSE-HQ preserves this
+metadata and uses a bounded provider-aware backoff for configured primary retries
+instead of retrying after a fixed one-second delay. Public/session error messages
+also adapt to the user's conversational register instead of exposing a stiff
+operational string.
+
+Public Vision follow-ups reuse the original screenshot only when the new question
+is visually grounded (for example, asking about text, an icon, color, or a region
+inside the image). Conceptual follow-ups such as pros/cons, scope, feasibility, or
+planning use the prior conversation without resending the image, reducing token
+pressure on free-tier multimodal limits.
+
 ### Personality Layer v1
 
 CSE-HQ owns its personality independently of Groq, Gemini, or any future model.

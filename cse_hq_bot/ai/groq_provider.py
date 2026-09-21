@@ -166,6 +166,26 @@ class GroqProvider:
             return "\n".join(parts)
         raise AIMalformedResponseError("Groq returned an empty or malformed response")
 
+    @staticmethod
+    def _retry_after_seconds(exc: Exception) -> float | None:
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            headers = getattr(exc, "headers", None)
+        if headers is None:
+            return None
+        try:
+            raw = headers.get("retry-after")
+        except (AttributeError, TypeError):  # pragma: no cover - SDK/header boundary
+            return None
+        if raw is None:
+            return None
+        try:
+            value = float(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, value)
+
     def _normalize_error(self, exc: Exception) -> AIProviderError:
         name = exc.__class__.__name__.lower()
         message = str(exc).lower()
@@ -178,7 +198,10 @@ class GroqProvider:
         ):
             return AIConfigurationError("Groq configuration is invalid")
         if status == 429 or "ratelimit" in name or "rate limit" in message:
-            return AIRateLimitError("Groq rate limit exceeded")
+            return AIRateLimitError(
+                "Groq rate limit exceeded",
+                retry_after_seconds=self._retry_after_seconds(exc),
+            )
         if "timeout" in name or "timed out" in message:
             return AITimeoutError("Groq request timed out")
         if (

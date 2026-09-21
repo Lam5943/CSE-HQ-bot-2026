@@ -9,6 +9,7 @@ from discord.ext import commands
 
 from cse_hq_bot.ai.action_models import KnownMember
 from cse_hq_bot.ai.discord_image_input import extract_ai_images
+from cse_hq_bot.ai.personality import PersonalityPolicy
 from cse_hq_bot.config import load_config
 from cse_hq_bot.discord_forum_gateway import DiscordForumGateway
 from cse_hq_bot.errors import (
@@ -75,6 +76,18 @@ def build_ai_session_thread_name(display_name: str, session_number: int) -> str:
 def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
     pattern = re.compile(rf"<@!?{re.escape(str(bot_user_id))}>")
     return pattern.sub("", str(content or "")).strip()
+
+
+_VISUAL_FOLLOWUP_PATTERN = re.compile(
+    r"\b(?:ảnh|hình|screenshot|photo|image|trong ảnh|trong hình|nhìn|thấy|"
+    r"góc|màu|chữ|text|ocr|icon|nút|button|phần trên|phần dưới|bên trái|"
+    r"bên phải|what do you see|look at|read this|what does .* say)\b",
+    re.IGNORECASE,
+)
+
+
+def _followup_needs_inherited_vision(question: str) -> bool:
+    return bool(_VISUAL_FOLLOWUP_PATTERN.search(str(question or "")))
 
 
 def _is_supported_image_attachment(attachment: object) -> bool:
@@ -717,7 +730,9 @@ class CSEHQBot(commands.Bot):
                     "outcome": error.__class__.__name__,
                 },
             )
-            await message.channel.send(self._safe_ai_error_message(error))
+            await message.channel.send(
+                self._safe_ai_error_message(error, message.content)
+            )
 
     def _is_direct_bot_mention(self, message: discord.Message) -> bool:
         bot_user = self.user
@@ -841,9 +856,14 @@ class CSEHQBot(commands.Bot):
         started = time.monotonic()
         try:
             inherited_slots = max(0, 3 - len(attachments))
+            inherited_for_request = (
+                inherited_attachments[:inherited_slots]
+                if _followup_needs_inherited_vision(question)
+                else []
+            )
             image_attachments = [
                 *attachments,
-                *inherited_attachments[:inherited_slots],
+                *inherited_for_request,
             ]
             images = (
                 await extract_ai_images(image_attachments)
@@ -899,7 +919,7 @@ class CSEHQBot(commands.Bot):
                 },
             )
             await message.reply(
-                self._safe_ai_error_message(error),
+                self._safe_ai_error_message(error, question),
                 mention_author=False,
             )
 
@@ -1131,26 +1151,72 @@ class CSEHQBot(commands.Bot):
         except Exception as exc:
             raise InvalidInputError("Unable to create a private AI session here") from exc
 
-    def _safe_ai_error_message(self, error: CSEHQError) -> str:
+    def _safe_ai_error_message(
+        self,
+        error: CSEHQError,
+        user_text: str | None = None,
+    ) -> str:
+        if user_text is None:
+            if isinstance(error, AISessionBusyError):
+                return "This AI session is busy. Try again in a moment."
+            if isinstance(error, AISessionClosedError):
+                return "This AI session is closed. Start a new session from /ai."
+            if isinstance(error, AISessionConflictError):
+                return "This Discord thread is already linked to another AI session."
+            if isinstance(error, PermissionDeniedError):
+                return "You are not allowed to access this AI session."
+            if isinstance(error, AIConfigurationError):
+                return "AI provider configuration is unavailable right now."
+            if isinstance(error, AIRateLimitError):
+                return "AI provider is busy right now. Please try again later."
+            if isinstance(error, AITimeoutError):
+                return "AI provider timed out. Please try again."
+            if isinstance(error, AIProviderError):
+                return "AI provider is unavailable right now. Please try again later."
+            if isinstance(error, InvalidInputError):
+                return str(error)
+            return "Unable to handle this AI request right now."
+
+        text = str(user_text or "")
+        style = PersonalityPolicy().infer_style(text)
+        vietnamese = bool(
+            re.search(
+                r"[ăâđêôơưĂÂĐÊÔƠƯ]|\b(?:mình|tui|bạn|cái|nha|nhé|không|được|với|"
+                r"cho|thì|vậy|thế|phân tích|đưa)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+        casual_bro = style.address_hint == "bro"
+
         if isinstance(error, AISessionBusyError):
-            return "This AI session is busy. Try again in a moment."
+            if vietnamese:
+                return "Session này đang xử lý câu trước rồi bro, chờ nó xong một nhịp nha." if casual_bro else "Session này đang xử lý câu trước, thử lại sau một chút nhé."
+            return "This session is still handling the previous message—give it a moment."
         if isinstance(error, AISessionClosedError):
-            return "This AI session is closed. Start a new session from /ai."
+            return "Session này đã đóng rồi, mở session mới bằng /ai nhé." if vietnamese else "This AI session is closed. Start a new one from /ai."
         if isinstance(error, AISessionConflictError):
-            return "This Discord thread is already linked to another AI session."
+            return "Thread này đã gắn với một AI session khác rồi." if vietnamese else "This Discord thread is already linked to another AI session."
         if isinstance(error, PermissionDeniedError):
-            return "You are not allowed to access this AI session."
+            return "Bạn không có quyền truy cập AI session này." if vietnamese else "You are not allowed to access this AI session."
         if isinstance(error, AIConfigurationError):
-            return "AI provider configuration is unavailable right now."
+            return "Cấu hình AI đang có vấn đề nên mình chưa gọi model được." if vietnamese else "The AI configuration is unavailable right now."
         if isinstance(error, AIRateLimitError):
-            return "AI provider is busy right now. Please try again later."
+            if vietnamese:
+                if casual_bro:
+                    return (
+                        "Con AI đang dính rate limit xíu bro 😭 mình đã retry rồi nhưng "
+                        "provider vẫn chưa nhả; thử reply lại chút nữa nha."
+                    )
+                return "AI đang bị rate limit một chút; mình đã retry rồi, thử lại sau nhé."
+            return "The AI provider is rate-limiting requests right now; I retried, but it still needs a moment."
         if isinstance(error, AITimeoutError):
-            return "AI provider timed out. Please try again."
+            return "AI bị timeout mất rồi, thử lại câu này nha." if vietnamese else "The AI request timed out—try that message again."
         if isinstance(error, AIProviderError):
-            return "AI provider is unavailable right now. Please try again later."
+            return "Provider AI đang chập chờn một chút, thử lại sau nha." if vietnamese else "The AI provider is temporarily unavailable—try again shortly."
         if isinstance(error, InvalidInputError):
             return str(error)
-        return "Unable to handle this AI request right now."
+        return "Mình chưa xử lý được request này lúc này." if vietnamese else "I couldn't handle that request right now."
 
     async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent) -> None:
         session_id = self.container.ai_session_service.reconcile_deleted_thread(

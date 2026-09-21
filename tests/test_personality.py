@@ -121,3 +121,60 @@ def test_prompt_language_policy_allows_explicit_language_request():
 
     instruction = payload.system_instruction
     assert "unless the user writes in that language or explicitly asks for it" in instruction
+
+
+def test_adaptive_style_detects_casual_bro_followup():
+    policy = PersonalityPolicy()
+    style = policy.infer_style(
+        "pros and cons của cái này đi bro",
+        history_messages=[],
+    )
+
+    assert style.register == "casual"
+    assert style.address_hint == "bro"
+    assert style.compact is True
+    assert style.structured is False
+
+
+def test_adaptive_style_uses_recent_user_history_for_short_followup():
+    policy = PersonalityPolicy()
+    style = policy.infer_style(
+        "cái này thì sao?",
+        history_messages=[
+            {"role": "user", "content": "bro phân tích topic này giúp mình"},
+            {"role": "assistant", "content": "Đây là phân tích trước."},
+        ],
+    )
+
+    assert style.register == "casual"
+    assert style.address_hint == "bro"
+    assert style.compact is True
+
+
+def test_adaptive_style_respects_formal_current_message():
+    style = PersonalityPolicy().infer_style(
+        "Vui lòng trình bày chi tiết theo từng phần.",
+        history_messages=[{"role": "user", "content": "bro check cái này"}],
+    )
+
+    assert style.register == "formal"
+    assert style.structured is True
+
+
+def test_prompt_prefers_conversation_over_report_for_casual_followup():
+    payload = PromptBuilder().build(
+        history_messages=[
+            {"role": "user", "content": "bro phân tích topic này đi"},
+            {"role": "assistant", "content": "Mình phân tích rồi nè."},
+        ],
+        user_question="bro đưa mình pros and cons nha",
+        context_records=[],
+    )
+
+    instruction = payload.system_instruction
+    assert "You may call them 'bro' occasionally" in instruction
+    assert "Answer the follow-up immediately" in instruction
+    assert "Avoid turning ordinary chat into a report" in instruction or (
+        "formal report-style sectioning only when the user asks for it" in instruction
+    )
+    assert "For general questions, brainstorming, or image analysis, do not announce" in instruction
