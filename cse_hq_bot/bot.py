@@ -404,7 +404,7 @@ class CSEHQBot(commands.Bot):
 
         @app_commands.command(
             name="weekly_dashboard",
-            description="Publish this week's dashboard snapshot to the configured team channel",
+            description="Publish or refresh this week's dashboard snapshot in the configured team channel",
         )
         async def weekly_dashboard(interaction: discord.Interaction) -> None:
             actor = resolve_actor_from_interaction(interaction)
