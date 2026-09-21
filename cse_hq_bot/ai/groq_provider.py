@@ -176,7 +176,7 @@ class GroqProvider:
             return None
         try:
             raw = headers.get("retry-after")
-        except Exception:  # pragma: no cover - SDK/header mapping boundary
+        except (AttributeError, TypeError):  # pragma: no cover - SDK/header boundary
             return None
         if raw is None:
             return None
