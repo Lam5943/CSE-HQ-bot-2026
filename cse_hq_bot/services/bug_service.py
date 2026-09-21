@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Callable
+from typing import ClassVar
 
 from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
 from cse_hq_bot.identifiers import bug_code
@@ -7,12 +9,11 @@ from cse_hq_bot.permissions import ensure_can_modify_bug
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 
-
 logger = logging.getLogger(__name__)
 
 
 class BugService:
-    _TRANSITIONS: dict[str, set[str]] = {
+    _TRANSITIONS: ClassVar[dict[str, set[str]]] = {
         BugStatus.OPEN.value: {
             BugStatus.TRIAGED.value,
             BugStatus.IN_PROGRESS.value,
@@ -33,9 +34,15 @@ class BugService:
         },
     }
 
-    def __init__(self, repo: BugRepository, activity_repo: ActivityRepository | None = None):
+    def __init__(
+        self,
+        repo: BugRepository,
+        activity_repo: ActivityRepository | None = None,
+        publication_hook: Callable[[str, dict], None] | None = None,
+    ):
         self.repo = repo
         self.activity_repo = activity_repo
+        self.publication_hook = publication_hook
 
     def report_bug(
         self,
@@ -63,6 +70,7 @@ class BugService:
                 "assignee_id": bug.get("assignee_id"),
             },
         )
+        self._publish("reported", bug)
         return bug_id
 
     def list_bugs(self) -> list[dict]:
@@ -182,6 +190,15 @@ class BugService:
                     "changed_fields": edit_fields,
                 },
             )
+        if changed_fields:
+            event_type = (
+                "status_changed"
+                if "status" in changed_fields
+                else "assigned"
+                if "assignee_id" in changed_fields
+                else "updated"
+            )
+            self._publish(event_type, self.repo.get(bug_id))
 
     def assign_bug(self, actor: Actor, bug_id: int, assignee_id: str | None) -> None:
         self.update_bug(actor, bug_id, assignee_id=assignee_id)
@@ -208,3 +225,14 @@ class BugService:
             )
         except Exception:  # pragma: no cover - defensive logging path
             logger.exception("Failed to append bug activity", extra={"event_type": event_type, "bug_id": bug["id"]})
+
+    def _publish(self, event_type: str, bug: dict) -> None:
+        if self.publication_hook is None:
+            return
+        try:
+            self.publication_hook(event_type, bug)
+        except Exception:  # pragma: no cover - defensive isolation boundary
+            logger.exception(
+                "Failed to schedule bug Forum publication",
+                extra={"event_type": event_type, "bug_id": bug["id"]},
+            )

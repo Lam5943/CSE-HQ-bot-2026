@@ -29,6 +29,12 @@ class Config:
     github_request_timeout: int
     github_cache_ttl: int
     github_max_results: int
+    github_webhook_enabled: bool
+    github_webhook_secret: str | None
+    webhook_host: str
+    webhook_port: int
+    github_webhook_path: str
+    github_bug_label: str
 
 
 def load_config() -> Config:
@@ -65,4 +71,18 @@ def load_config() -> Config:
         github_request_timeout=max(1, int(os.getenv("GITHUB_REQUEST_TIMEOUT", "15"))),
         github_cache_ttl=max(1, int(os.getenv("GITHUB_CACHE_TTL", "300"))),
         github_max_results=max(1, min(100, int(os.getenv("GITHUB_MAX_RESULTS", "30")))),
+        github_webhook_enabled=os.getenv(
+            "GITHUB_WEBHOOK_ENABLED", "false"
+        ).lower()
+        in {"1", "true", "yes", "on"},
+        github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET"),
+        # The deployment-controlled listener intentionally defaults to all interfaces.
+        webhook_host=(os.getenv("WEBHOOK_HOST") or "0.0.0.0").strip(),  # nosec B104
+        webhook_port=max(
+            1, min(65535, int(os.getenv("WEBHOOK_PORT") or "8080"))
+        ),
+        github_webhook_path=(
+            os.getenv("GITHUB_WEBHOOK_PATH") or "/webhooks/github"
+        ).strip(),
+        github_bug_label=(os.getenv("GITHUB_BUG_LABEL") or "bug").strip(),
     )

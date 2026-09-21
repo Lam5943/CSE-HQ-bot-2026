@@ -6,11 +6,16 @@ from cse_hq_bot.config import Config
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import AIConfigurationError
 from cse_hq_bot.github_provider import GitHubProvider
+from cse_hq_bot.github_webhook import (
+    GitHubWebhookProcessor,
+    GitHubWebhookServer,
+)
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.ai_action_repository import AIActionProposalRepository
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+from cse_hq_bot.repositories.forum_repository import ForumRepository
 from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.repositories.project_repository import ProjectRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
@@ -23,6 +28,8 @@ from cse_hq_bot.services.ai_session_service import AISessionService
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.collab_service import CollaborationService
 from cse_hq_bot.services.decision_service import DecisionService
+from cse_hq_bot.services.forum_publishing_service import ForumPublishingService
+from cse_hq_bot.services.github_event_service import GitHubEventService
 from cse_hq_bot.services.github_service import GitHubService
 from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_context_service import ProjectContextService
@@ -48,11 +55,17 @@ class ServiceContainer:
         collab_repo = CollaborationRepository(db)
         activity_repo = ActivityRepository(db)
         github_repo = GitHubRepositoryCache(db)
+        forum_repo = ForumRepository(db)
 
         self.project_service = ProjectService(project_repo)
         self.activity_service = ActivityService(activity_repo)
         self.task_service = TaskService(task_repo, activity_repo)
-        self.bug_service = BugService(bug_repo, activity_repo)
+        self.forum_publishing_service = ForumPublishingService(forum_repo)
+        self.bug_service = BugService(
+            bug_repo,
+            activity_repo,
+            publication_hook=self.forum_publishing_service.publish_bug_nowait,
+        )
         self.collab_service = CollaborationService(collab_repo, activity_repo)
         self.meeting_service = MeetingService(collab_repo, activity_repo)
         self.decision_service = DecisionService(collab_repo, activity_repo)
@@ -77,6 +90,30 @@ class ServiceContainer:
             max_results=config.github_max_results,
             cache_ttl=config.github_cache_ttl,
         )
+        self.github_event_service = GitHubEventService(
+            self.forum_publishing_service,
+            bug_label=config.github_bug_label,
+        )
+        self.github_webhook_processor = None
+        self.github_webhook_server = None
+        if config.github_webhook_enabled:
+            repository_full_name = (
+                f"{config.github_repository_owner}/{config.github_repository_name}"
+                if config.github_repository_owner and config.github_repository_name
+                else ""
+            )
+            self.github_webhook_processor = GitHubWebhookProcessor(
+                forum_repo,
+                self.github_event_service,
+                secret=config.github_webhook_secret or "",
+                repository_full_name=repository_full_name,
+            )
+            self.github_webhook_server = GitHubWebhookServer(
+                self.github_webhook_processor,
+                host=config.webhook_host,
+                port=config.webhook_port,
+                path=config.github_webhook_path,
+            )
         self.project_context_service = ProjectContextService(
             self.project_service,
             self.task_service,

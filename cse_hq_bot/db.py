@@ -175,6 +175,34 @@ class Database:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(entity_type, entity_id, provider, external_type, external_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS forum_settings (
+                    forum_kind TEXT PRIMARY KEY,
+                    forum_channel_id TEXT NOT NULL,
+                    configured_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS forum_publications (
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    forum_channel_id TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    starter_message_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (entity_type, entity_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+                    delivery_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_at TEXT,
+                    error_code TEXT
+                );
                 """
             )
             self._ensure_project_settings_columns(conn)
@@ -220,6 +248,12 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_external_links_entity ON project_external_links(entity_type, entity_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_forum_publications_thread ON forum_publications(thread_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_received ON github_webhook_deliveries(received_at)"
             )
 
     def _ensure_project_settings_columns(self, conn: sqlite3.Connection) -> None:
