@@ -52,18 +52,22 @@ def test_build_dashboard_embed_contains_management_fields():
         meetings_total=2,
     )
     embed = build_dashboard_embed(dashboard)
-    assert embed.title == "📊 Alpha • Project Dashboard"
-    assert embed.description == "> Project summary"
+    assert embed.title == "🛰️ Alpha • Command Center"
+    assert "> Project summary" in (embed.description or "")
+    assert "On Track" in (embed.description or "")
+    assert "Execution" in (embed.description or "")
+    assert "Sprint 2" in (embed.description or "")
     field_values = {field.name: field.value for field in embed.fields}
-    assert field_values["🎯 Goal"] == "Ship MVP"
-    assert "On Track" in field_values["📌 Status"]
-    assert "60%" in field_values["✅ Task Progress"]
-    assert "6/10" in field_values["✅ Task Progress"]
-    assert "4" in field_values["✅ Task Progress"]
-    assert field_values["🐞 Bugs"] == "**1** open • 3 total"
-    assert embed.footer.text == "CSE-HQ • Project data updated"
+    assert field_values["🎯 Current Objective"] == "**Ship MVP**"
+    assert "60%" in field_values["📈 Delivery Progress"]
+    assert "6 of 10" in field_values["📈 Delivery Progress"]
+    assert field_values["✅ Completed"] == "**6**\nTasks"
+    assert field_values["🧩 Open"] == "**4**\nTasks"
+    assert field_values["🐞 Bugs"] == "**1**\nOpen"
+    assert field_values["📅 Deadline"] == "**2026-10-10**"
+    assert field_values["📦 Scope"] == "10 tasks · 3 bugs"
+    assert embed.footer.text == "CSE-HQ • Live project overview"
     assert embed.timestamp == dashboard.updated_at
-
 
 def test_build_weekly_dashboard_embed_is_public_snapshot():
     dashboard = ProjectDashboard(
@@ -83,10 +87,10 @@ def test_build_weekly_dashboard_embed_is_public_snapshot():
         meetings_total=2,
     )
     embed = build_weekly_dashboard_embed(dashboard, "2026-W39")
-    assert embed.title == "📆 Alpha • Weekly Snapshot"
+    assert embed.title == "📆 Alpha • Weekly Pulse"
     assert "2026-W39" in (embed.description or "")
     assert "Team snapshot" in (embed.description or "")
-    assert embed.footer.text == "CSE-HQ • Weekly snapshot • 2026-W39"
+    assert embed.footer.text == "CSE-HQ • Weekly pulse • 2026-W39"
 
 
 def test_build_tasks_and_bugs_embed_empty_states():
