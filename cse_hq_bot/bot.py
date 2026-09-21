@@ -78,6 +78,18 @@ def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
     return pattern.sub("", str(content or "")).strip()
 
 
+_VISUAL_FOLLOWUP_PATTERN = re.compile(
+    r"\b(?:ảnh|hình|screenshot|photo|image|trong ảnh|trong hình|nhìn|thấy|"
+    r"góc|màu|chữ|text|ocr|icon|nút|button|phần trên|phần dưới|bên trái|"
+    r"bên phải|what do you see|look at|read this|what does .* say)\b",
+    re.IGNORECASE,
+)
+
+
+def _followup_needs_inherited_vision(question: str) -> bool:
+    return bool(_VISUAL_FOLLOWUP_PATTERN.search(str(question or "")))
+
+
 def _is_supported_image_attachment(attachment: object) -> bool:
     content_type = str(getattr(attachment, "content_type", "") or "").split(";", 1)[0].lower()
     filename = str(getattr(attachment, "filename", "") or "").lower()
@@ -844,9 +856,14 @@ class CSEHQBot(commands.Bot):
         started = time.monotonic()
         try:
             inherited_slots = max(0, 3 - len(attachments))
+            inherited_for_request = (
+                inherited_attachments[:inherited_slots]
+                if _followup_needs_inherited_vision(question)
+                else []
+            )
             image_attachments = [
                 *attachments,
-                *inherited_attachments[:inherited_slots],
+                *inherited_for_request,
             ]
             images = (
                 await extract_ai_images(image_attachments)
