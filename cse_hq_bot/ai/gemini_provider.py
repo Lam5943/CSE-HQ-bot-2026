@@ -1,7 +1,12 @@
 import asyncio
 import logging
 
-from cse_hq_bot.ai.base import AIImage, AIMessage, AIProviderResponse, RetrievedContextRecord
+from cse_hq_bot.ai.base import (
+    AIImage,
+    AIMessage,
+    AIProviderResponse,
+    RetrievedContextRecord,
+)
 from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
 from cse_hq_bot.errors import (
     AIConfigurationError,
