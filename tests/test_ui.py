@@ -119,7 +119,7 @@ def test_build_bugs_embed_paginates_and_shows_filter_metadata():
         for index in range(1, 12)
     ]
     embed = build_bugs_embed(bugs, show_all=True, page=1, filters_label="severity:3")
-    assert embed.fields[0].name == "Filters"
+    assert embed.fields[0].name == "🔎 Filters"
     assert embed.fields[0].value == "severity:3"
     assert "Bug 9" in (embed.description or "")
     assert embed.footer.text == "CSE-HQ • Bugs • Page 2/2 • 3/11 shown"
@@ -253,7 +253,7 @@ def test_build_ai_action_embed_states_no_mutation_before_confirmation():
 
     embed = build_ai_action_embed(proposal)
 
-    assert embed.title == "🤖 AI Action Proposal"
+    assert embed.title == "🤖 CSE-HQ • Action Proposal"
     assert "TASK-014" in (embed.description or "")
     assert "No project data has changed" in embed.fields[2].value
 
