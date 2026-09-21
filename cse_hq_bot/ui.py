@@ -143,18 +143,18 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Style",
-        value=(
-            "Experienced mentor, low-pressure teammate, and lightly funny when the "
-            "situation allows it. CSE-HQ challenges weak assumptions without judging people."
-        ),
-        inline=False,
-    )
-    embed.add_field(
         name="Boundaries",
         value=(
             "Read-only by default. No mutation occurs without your explicit "
             "confirmation; GitHub remains read-only."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Style",
+        value=(
+            "Experienced mentor, low-pressure teammate, and lightly funny when the "
+            "situation allows it. CSE-HQ challenges weak assumptions without judging people."
         ),
         inline=False,
     )
