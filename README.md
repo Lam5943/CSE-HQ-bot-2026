@@ -8,6 +8,7 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Role-aware project, task, and bug operations for Leaders, Co-Leads, and Members
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
 - Weekly progress reporting
+- Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
 - Grounded project Q&A through a pluggable AI provider
 - A private, grounded assistant with persistent sessions and explicitly confirmed internal actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
@@ -277,7 +278,7 @@ SQLite
 ```
 
 The main domains are Project, Tasks, Bugs, Meetings, Decisions, Standups,
-Activity, GitHub, Forum Publishing, AI Sessions, AI Actions, and Health. Domain
+Activity, Weekly Dashboard Publishing, GitHub, Forum Publishing, AI Sessions, AI Actions, and Health. Domain
 services and SQLite remain authoritative for project records. External providers
 are isolated behind adapters.
 
@@ -317,7 +318,7 @@ local process and SQLite state; it does not contact external providers.
 - **Member:** can use read surfaces, manage permitted assigned/owned work, submit
   their own standup, and use their own private AI sessions.
 - **Leader / CoLead:** can perform project-level management, GitHub sync, Forum
-  setup, health diagnostics, and other privileged domain mutations.
+  setup, weekly dashboard setup/manual publishing, health diagnostics, and other privileged domain mutations.
 - Authorization is enforced by application services. Discord buttons, command
   visibility, thread privacy, and ephemeral responses are not the sole security
   boundary.
@@ -336,9 +337,11 @@ The stable command surface is:
 | `/standup` | All roles | Own daily submission plus permitted team/history views |
 | `/github` | All roles; sync restricted to Leader/CoLead | Read-only cached GitHub context |
 | `/weekly_report` | All roles | Current weekly progress report |
+| `/weekly_dashboard` | Leader/CoLead only | Publish the current ISO-week dashboard snapshot to the configured public channel |
 | `/ai` | All roles | Private grounded AI sessions and confirmed proposals |
 | `/health` | Leader/CoLead only | Bounded operational diagnostics |
 | `/setup forums` | Leader/CoLead only | Persist Discord Forum mappings |
+| `/setup dashboard` | Leader/CoLead only | Configure the public dashboard channel, weekday, and local publish time |
 
 ### `/dashboard`
 
@@ -348,6 +351,17 @@ Opens a private interactive dashboard Embed with:
 - Task and bug summary metrics
 - Refresh button to reload the latest project data
 - **Manage Dashboard** button (Leader/Co-Lead only through service-layer permissions) to update project management fields
+
+### Weekly public dashboard
+
+`/dashboard` remains a private realtime management surface. Public team visibility is handled separately:
+
+- `/setup dashboard` stores the target text channel and weekly schedule in SQLite. Defaults are Monday at 09:00 in `Asia/Ho_Chi_Minh`.
+- `/weekly_dashboard` lets a Leader/CoLead manually publish the current ISO-week snapshot.
+- The long-running bot process checks the schedule once per minute and publishes the first due snapshot for the week.
+- If the bot is offline at the scheduled time, it catches up later in the same ISO week.
+- `dashboard_publications.week_key` is unique, so one bot process cannot intentionally publish the same week twice.
+- Public snapshots contain no management controls; project mutations remain behind the existing private command/service permission boundaries.
 
 ### `/tasks`
 
