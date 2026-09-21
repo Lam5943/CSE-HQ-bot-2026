@@ -403,6 +403,7 @@ def build_tasks_embed(
         embed.add_field(name="📅 With Deadline", value=metric_value(stats.get("with_deadline", 0), "Tasks"), inline=True)
     if not tasks:
         embed.description += "\n\n> No tasks found."
+        set_surface_footer(embed, "tasks")
         return embed
     page_items, safe_page, total_pages = _page_slice(tasks, page)
     lines = [
@@ -470,6 +471,7 @@ def build_bugs_embed(
         )
     if not bugs:
         embed.description += "\n\n> No bugs found."
+        set_surface_footer(embed, "bugs")
         return embed
     page_items, safe_page, total_pages = _page_slice(bugs, page)
     lines = [
@@ -533,6 +535,7 @@ def build_meetings_embed(
     )
     if not meetings:
         embed.description += "\n\n> No meetings found."
+        set_surface_footer(embed, "meetings")
         return embed
     page_items, safe_page, total_pages = _page_slice(meetings, page)
     embed.description += "\n\n" + "\n\n".join(
@@ -621,6 +624,7 @@ def build_decisions_embed(
     )
     if not decisions:
         embed.description += "\n\n> No decisions found."
+        set_surface_footer(embed, "decisions")
         return embed
     page_items, safe_page, total_pages = _page_slice(decisions, page)
     embed.description += "\n\n" + "\n\n".join(
@@ -694,6 +698,7 @@ def build_standup_embed(
         )
     if not entries:
         embed.description += "\n\n> No standups found."
+        set_surface_footer(embed, "standup")
         return embed
     page_items, safe_page, total_pages = _page_slice(entries, page)
     embed.description += "\n\n" + "\n\n".join(
