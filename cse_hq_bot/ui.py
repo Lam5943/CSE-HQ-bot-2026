@@ -136,6 +136,40 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
     return chunks
 
 
+def build_welcome_embed(
+    *,
+    member_mention: str,
+    display_name: str,
+    guild_name: str,
+) -> discord.Embed:
+    embed = surface_embed(
+        "welcome",
+        description=(
+            f"### Chào mừng {display_name}!\n"
+            f"{member_mention} vừa gia nhập **{guild_name}** ✨"
+        ),
+    )
+    embed.add_field(
+        name="🚀 Bắt đầu nhanh",
+        value=(
+            "• Xem các kênh thông tin và project hiện tại\n"
+            "• Dùng `/dashboard` để xem tổng quan\n"
+            "• Mention mình khi cần hỏi nhanh hoặc research web"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🤖 CSE-HQ ở đây để làm gì?",
+        value=(
+            "Mình là mentor-style teammate của server: hỗ trợ project, debug, "
+            "brainstorm và research mà không tự ý thay đổi dữ liệu."
+        ),
+        inline=False,
+    )
+    set_surface_footer(embed, "welcome", detail="Glad you're here")
+    return embed
+
+
 def build_ai_home_embed() -> discord.Embed:
     embed = surface_embed("ai", description="### Private teammate workspace")
     embed.description = (
