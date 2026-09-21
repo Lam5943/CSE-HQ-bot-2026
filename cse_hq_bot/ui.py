@@ -8,6 +8,8 @@ from cse_hq_bot.errors import (
     AIActionAlreadyHandledError,
     AIActionConflictError,
     AIActionExpiredError,
+    AIActionOwnershipError,
+    AIActionValidationError,
     CSEHQError,
     InvalidInputError,
     InvalidTransitionError,
@@ -40,6 +42,28 @@ STALE_MEETING_MESSAGE = "This meeting is no longer available in its previous sta
 STALE_DECISION_MESSAGE = "This decision is no longer available in its previous state. Please refresh the decisions list."
 
 AI_RESPONSE_LIMIT = 1800
+
+
+def _ai_action_error_message(error: CSEHQError) -> tuple[str, bool]:
+    if isinstance(error, AIActionExpiredError):
+        return "This action proposal expired. Create and review a new proposal.", True
+    if isinstance(error, AIActionConflictError):
+        return (
+            (
+                "The project record changed after this action was proposed. "
+                "Refresh the project state and try again."
+            ),
+            True,
+        )
+    if isinstance(error, AIActionAlreadyHandledError):
+        return "This action proposal has already been handled.", True
+    if isinstance(error, AIActionOwnershipError):
+        return "Only the proposal creator may handle this action.", False
+    if isinstance(error, PermissionDeniedError):
+        return "You no longer have permission to perform this action.", True
+    if isinstance(error, AIActionValidationError):
+        return str(error), True
+    return "This action could not be completed safely.", True
 
 
 def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
@@ -511,12 +535,14 @@ class AIActionConfirmationView(OwnedView):
         proposal_id: int,
         action_service: AIActionService,
         actor_resolver: Callable[[discord.Interaction], Actor],
+        member_ids_resolver: Callable[[discord.Interaction], set[str]],
         timeout: float = 600,
     ):
         super().__init__(owner_id, timeout=timeout)
         self.proposal_id = proposal_id
         self.action_service = action_service
         self.actor_resolver = actor_resolver
+        self.member_ids_resolver = member_ids_resolver
 
     @discord.ui.button(label="Confirm", emoji="✅", style=discord.ButtonStyle.success)
     async def confirm(
@@ -524,10 +550,21 @@ class AIActionConfirmationView(OwnedView):
     ) -> None:
         try:
             result = self.action_service.confirm(
-                self.actor_resolver(interaction), self.proposal_id
+                self.actor_resolver(interaction),
+                self.proposal_id,
+                eligible_member_ids=self.member_ids_resolver(interaction),
             )
         except CSEHQError as error:
             await self._send_error(interaction, error)
+            return
+        except Exception as error:  # pragma: no cover - defensive UI boundary
+            logger.exception("Unexpected AI action confirmation failure", exc_info=error)
+            self._disable()
+            await interaction.response.edit_message(
+                content="This action could not be completed safely.",
+                embed=None,
+                view=self,
+            )
             return
         self._disable()
         await interaction.response.edit_message(
@@ -547,6 +584,12 @@ class AIActionConfirmationView(OwnedView):
         except CSEHQError as error:
             await self._send_error(interaction, error)
             return
+        except Exception as error:  # pragma: no cover - defensive UI boundary
+            logger.exception("Unexpected AI action cancellation failure", exc_info=error)
+            await interaction.response.send_message(
+                "This action could not be cancelled safely.", ephemeral=True
+            )
+            return
         self._disable()
         await interaction.response.edit_message(
             content=result.message,
@@ -563,20 +606,16 @@ class AIActionConfirmationView(OwnedView):
     async def _send_error(
         self, interaction: discord.Interaction, error: CSEHQError
     ) -> None:
-        if isinstance(error, AIActionExpiredError):
-            message = "This action proposal expired. Create and review a new proposal."
-        elif isinstance(error, AIActionConflictError):
-            message = (
-                "The project record changed after this action was proposed. "
-                "Refresh the project state and try again."
+        message, terminal = _ai_action_error_message(error)
+        if terminal:
+            self._disable()
+            await interaction.response.edit_message(
+                content=message,
+                embed=None,
+                view=self,
             )
-        elif isinstance(error, AIActionAlreadyHandledError):
-            message = "This action proposal has already been handled."
-        elif isinstance(error, PermissionDeniedError):
-            message = "Only the proposal creator may handle this action."
         else:
-            message = "This action could not be completed safely."
-        await interaction.response.send_message(message, ephemeral=True)
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 class ProjectManageModal(discord.ui.Modal, title="Manage Project Dashboard"):

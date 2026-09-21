@@ -308,6 +308,7 @@ class CSEHQBot(commands.Bot):
                     proposal_id=answer.action_proposal.id,
                     action_service=self.container.ai_action_service,
                     actor_resolver=resolve_actor_from_interaction,
+                    member_ids_resolver=known_member_ids_from_interaction,
                     timeout=max(
                         60,
                         self.container.ai_action_service.expiration_seconds,
@@ -480,6 +481,20 @@ def known_members_from_message(message: discord.Message) -> list[KnownMember]:
 
 def resolve_actor_from_interaction(interaction: discord.Interaction) -> Actor:
     return resolve_actor_from_user(interaction.user)
+
+
+def known_member_ids_from_interaction(
+    interaction: discord.Interaction,
+) -> set[str]:
+    member_ids = {str(interaction.user.id)}
+    guild = interaction.guild
+    if guild is not None:
+        member_ids.update(
+            str(member.id)
+            for member in getattr(guild, "members", [])
+            if not getattr(member, "bot", False)
+        )
+    return member_ids
 
 
 def main() -> None:  # pragma: no cover

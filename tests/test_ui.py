@@ -1,8 +1,20 @@
+import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from cse_hq_bot.ai.action_models import ActionProposal
-from cse_hq_bot.models import ProjectDashboard
+from cse_hq_bot.errors import (
+    AIActionAlreadyHandledError,
+    AIActionConflictError,
+    AIActionExpiredError,
+    AIActionOwnershipError,
+    AIActionValidationError,
+    PermissionDeniedError,
+)
+from cse_hq_bot.models import Actor, ProjectDashboard, Role
 from cse_hq_bot.ui import (
+    AIActionConfirmationView,
+    _ai_action_error_message,
     _pagination_state,
     build_ai_action_embed,
     build_ai_home_embed,
@@ -208,3 +220,118 @@ def test_build_ai_action_embed_states_no_mutation_before_confirmation():
     assert embed.title == "🤖 AI Action Proposal"
     assert "TASK-014" in (embed.description or "")
     assert "No project data has changed" in embed.fields[2].value
+
+
+def test_ai_action_error_messages_distinguish_owner_permission_and_terminal_states():
+    cases = [
+        (AIActionExpiredError("expired"), "expired", True),
+        (AIActionConflictError("stale"), "changed", True),
+        (AIActionAlreadyHandledError("handled"), "already", True),
+        (AIActionOwnershipError("owner"), "creator", False),
+        (PermissionDeniedError("permission"), "no longer have permission", True),
+        (AIActionValidationError("member removed"), "member removed", True),
+    ]
+
+    for error, expected, terminal in cases:
+        message, is_terminal = _ai_action_error_message(error)
+        assert expected in message
+        assert is_terminal is terminal
+
+
+def test_ai_action_view_owner_buttons_and_terminal_state():
+    class StubResponse:
+        def __init__(self):
+            self.sent = []
+            self.edits = []
+
+        def is_done(self):
+            return False
+
+        async def send_message(self, content, *, ephemeral=False):
+            self.sent.append((content, ephemeral))
+
+        async def edit_message(self, **kwargs):
+            self.edits.append(kwargs)
+
+    class StubActionService:
+        def __init__(self):
+            self.confirmed = []
+            self.cancelled = []
+
+        def confirm(self, actor, proposal_id, *, eligible_member_ids=None):
+            self.confirmed.append((actor, proposal_id, eligible_member_ids))
+            return SimpleNamespace(message="Action completed")
+
+        def cancel(self, actor, proposal_id):
+            self.cancelled.append((actor, proposal_id))
+            return SimpleNamespace(message="Action cancelled")
+
+    async def exercise():
+        service = StubActionService()
+        view = AIActionConfirmationView(
+            owner_id=7,
+            proposal_id=11,
+            action_service=service,
+            actor_resolver=lambda interaction: Actor(str(interaction.user.id), Role.MEMBER),
+            member_ids_resolver=lambda _: {"7", "alice"},
+        )
+        owner = SimpleNamespace(user=SimpleNamespace(id=7), response=StubResponse())
+        other = SimpleNamespace(user=SimpleNamespace(id=8), response=StubResponse())
+
+        assert await view.interaction_check(owner) is True
+        assert await view.interaction_check(other) is False
+        assert other.response.sent == [
+            ("This panel belongs to the user who opened it.", True)
+        ]
+
+        await view.children[0].callback(owner)
+        assert service.confirmed[0][1:] == (11, {"7", "alice"})
+        assert owner.response.edits[0]["content"] == "Action completed"
+        assert all(item.disabled for item in view.children)
+
+        cancel_view = AIActionConfirmationView(
+            owner_id=7,
+            proposal_id=12,
+            action_service=service,
+            actor_resolver=lambda interaction: Actor(str(interaction.user.id), Role.MEMBER),
+            member_ids_resolver=lambda _: {"7"},
+        )
+        cancel_owner = SimpleNamespace(
+            user=SimpleNamespace(id=7), response=StubResponse()
+        )
+        await cancel_view.children[1].callback(cancel_owner)
+        assert service.cancelled[0][1] == 12
+        assert cancel_owner.response.edits[0]["content"] == "Action cancelled"
+        assert all(item.disabled for item in cancel_view.children)
+
+    asyncio.run(exercise())
+
+
+def test_ai_action_view_disables_terminal_error():
+    class StubResponse:
+        def __init__(self):
+            self.edits = []
+
+        async def edit_message(self, **kwargs):
+            self.edits.append(kwargs)
+
+    class ExpiredActionService:
+        def confirm(self, *_args, **_kwargs):
+            raise AIActionExpiredError("expired")
+
+    async def exercise():
+        view = AIActionConfirmationView(
+            owner_id=7,
+            proposal_id=13,
+            action_service=ExpiredActionService(),
+            actor_resolver=lambda interaction: Actor(str(interaction.user.id), Role.MEMBER),
+            member_ids_resolver=lambda _: {"7"},
+        )
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=7), response=StubResponse()
+        )
+        await view.children[0].callback(interaction)
+        assert "expired" in interaction.response.edits[0]["content"]
+        assert all(item.disabled for item in view.children)
+
+    asyncio.run(exercise())

@@ -11,6 +11,7 @@ from cse_hq_bot.errors import (
     AIActionAlreadyHandledError,
     AIActionConflictError,
     AIActionExpiredError,
+    AIActionOwnershipError,
     AIActionValidationError,
     AISessionClosedError,
     CSEHQError,
@@ -78,7 +79,13 @@ class AIActionService:
         updated = self.repo.get(proposal_id)
         return ActionExecutionResult(updated, "❌ Action cancelled. No project data changed.")
 
-    def confirm(self, actor: Actor, proposal_id: int) -> ActionExecutionResult:
+    def confirm(
+        self,
+        actor: Actor,
+        proposal_id: int,
+        *,
+        eligible_member_ids: set[str] | None = None,
+    ) -> ActionExecutionResult:
         proposal = self._refresh_expiration(proposal_id)
         self._validate_owner(actor, proposal)
         self._require_pending(proposal)
@@ -94,6 +101,7 @@ class AIActionService:
         try:
             session = self.session_repo.get_session(claimed_proposal.session_id)
             self._validate_session(actor, session)
+            self._validate_assignee(claimed_proposal, eligible_member_ids)
             message = self.registry.execute(claimed_proposal, actor)
         except AIActionConflictError:
             self.repo.mark_failed(proposal_id, "STALE_STATE")
@@ -109,7 +117,10 @@ class AIActionService:
         except Exception as exc:  # pragma: no cover - defensive boundary
             self.repo.mark_failed(proposal_id, exc.__class__.__name__)
             raise AIActionValidationError("The action could not be executed safely") from exc
-        self.repo.mark_executed(proposal_id, self._now_timestamp())
+        if not self.repo.mark_executed(proposal_id, self._now_timestamp()):
+            raise AIActionAlreadyHandledError(
+                "This AI action proposal could not be finalized"
+            )
         return ActionExecutionResult(self.repo.get(proposal_id), message)
 
     def invalidate_session(self, session_id: int) -> int:
@@ -142,8 +153,23 @@ class AIActionService:
 
     def _validate_owner(self, actor: Actor, proposal: ActionProposal) -> None:
         if proposal.actor_id != actor.user_id:
-            raise PermissionDeniedError(
+            raise AIActionOwnershipError(
                 "Only the proposal creator may handle this AI action"
+            )
+
+    def _validate_assignee(
+        self,
+        proposal: ActionProposal,
+        eligible_member_ids: set[str] | None,
+    ) -> None:
+        if proposal.action_type not in {"task_create", "task_assign", "bug_assign"}:
+            return
+        assignee_id = proposal.arguments.get("assignee_id")
+        if assignee_id is None:
+            return
+        if eligible_member_ids is None or str(assignee_id) not in eligible_member_ids:
+            raise AIActionValidationError(
+                "The proposed assignee is no longer an eligible project member"
             )
 
     def _validate_session(self, actor: Actor, session: dict) -> None:

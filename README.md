@@ -395,7 +395,11 @@ Supported actions are:
 
 Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Gemini or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls `TaskService` or `BugService`. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
 
-Assignments resolve only to known Discord members available to the message context. Ambiguous targets or members require clarification rather than model selection. Raw or malformed model output, unknown actions, arbitrary parameters, and inaccessible records cannot become executable proposals.
+Closing a session marks its pending proposals failed and non-executable. Expiration is enforced from the persisted timestamp at confirmation time (including the exact expiry boundary), independently of Discord's View timeout. State or permission drift makes the claimed proposal fail rather than returning it to `PENDING`.
+
+Assignments resolve only to known Discord members available to the message context and revalidate the assignee against the current Discord guild member cache at confirmation time. Ambiguous, removed, or no-longer-visible members are rejected. Raw or malformed model output, unknown actions, arbitrary parameters, and inaccessible records cannot become executable proposals.
+
+Proposal records remain auditable across bot restarts, but confirmation Views are not restored after a restart in the current architecture. A pending proposal therefore never executes silently; the user must create a fresh proposal if its original buttons are no longer active.
 
 GitHub remains strictly read-only. Meeting/decision/standup mutations, GitHub writes, batch actions, chained workflows, autonomous execution, shell commands, repository changes, and delegated confirmation are not supported. **The AI cannot modify project data without explicit user confirmation.**
 
