@@ -732,9 +732,11 @@ class CSEHQBot(commands.Bot):
         if channel is None or not hasattr(channel, "create_thread"):
             raise InvalidInputError("Use /ai in a server channel that supports private threads")
         try:
-            display_name = getattr(interaction.user, "display_name", None)
-            or getattr(interaction.user, "name", None)
-            or "user"
+            display_name = (
+                getattr(interaction.user, "display_name", None)
+                or getattr(interaction.user, "name", None)
+                or "user"
+            )
             return await channel.create_thread(
                 name=build_ai_session_thread_name(display_name, session_number),
                 type=discord.ChannelType.private_thread,
