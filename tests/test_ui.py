@@ -14,6 +14,9 @@ from cse_hq_bot.errors import (
 from cse_hq_bot.models import Actor, ProjectDashboard, Role
 from cse_hq_bot.ui import (
     AIActionConfirmationView,
+    DashboardControlView,
+    ProjectExecutionModal,
+    ProjectOverviewModal,
     _ai_action_error_message,
     _pagination_state,
     build_ai_action_embed,
@@ -21,6 +24,7 @@ from cse_hq_bot.ui import (
     build_ai_sessions_embed,
     build_bug_detail_embed,
     build_bugs_embed,
+    build_dashboard_control_embed,
     build_dashboard_embed,
     build_decision_detail_embed,
     build_decisions_embed,
@@ -68,6 +72,97 @@ def test_build_dashboard_embed_contains_management_fields():
     assert field_values["📦 Scope"] == "10 tasks · 3 bugs"
     assert embed.footer.text == "CSE-HQ • Project • Live overview"
     assert embed.timestamp == dashboard.updated_at
+
+def test_build_dashboard_control_embed_explains_derived_progress():
+    dashboard = ProjectDashboard(
+        name="Alpha",
+        description="Project summary",
+        goal="Ship MVP",
+        phase="Execution",
+        sprint="Sprint 2",
+        deadline="2026-10-10",
+        status="At Risk",
+        updated_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+        task_total=10,
+        task_open=4,
+        task_done=6,
+        bug_total=3,
+        bug_open=1,
+        meetings_total=2,
+    )
+
+    embed = build_dashboard_control_embed(dashboard)
+
+    assert embed.title == "🛰️ CSE-HQ • Dashboard Control Center"
+    fields = {field.name: field.value for field in embed.fields}
+    assert "6/10 tasks done" in fields["📈 Progress Source"]
+    assert "never typed manually" in fields["📈 Progress Source"]
+    assert "Project Info" in fields["🧭 Controls"]
+    assert "Progress & Tasks" in fields["🧭 Controls"]
+    assert embed.footer.text == "CSE-HQ • Project • Control Center"
+
+
+def test_dashboard_control_center_uses_focused_modals_and_status_select():
+    class StubProjectService:
+        pass
+
+    class StubTaskService:
+        pass
+
+    async def exercise():
+        dashboard = ProjectDashboard(
+            name="Alpha",
+            description="Project summary",
+            goal="Ship MVP",
+            phase="Execution",
+            sprint="Sprint 2",
+            deadline="2026-10-10",
+            status="On Track",
+            updated_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+            task_total=10,
+            task_open=4,
+            task_done=6,
+            bug_total=3,
+            bug_open=1,
+            meetings_total=2,
+        )
+        view = DashboardControlView(
+            owner_id=1,
+            actor_resolver=lambda _: Actor("1", Role.LEADER),
+            project_service=StubProjectService(),
+            task_service=StubTaskService(),
+            dashboard=dashboard,
+        )
+        labels = {
+            getattr(item, "label", None)
+            for item in view.children
+            if getattr(item, "label", None)
+        }
+        assert {"Project Info", "Execution", "Progress & Tasks", "Refresh", "Back to Dashboard"} <= labels
+
+        status_select = view.status_select
+        assert status_select.placeholder == "Set project status"
+        assert any(
+            option.label == "On Track" and option.default
+            for option in status_select.options
+        )
+        assert any(option.label == "Blocked" for option in status_select.options)
+
+        overview = ProjectOverviewModal(view, dashboard)
+        execution = ProjectExecutionModal(view, dashboard)
+        assert [item.label for item in overview.children] == [
+            "Project Name",
+            "Description",
+            "Current Objective",
+        ]
+        assert [item.label for item in execution.children] == [
+            "Phase",
+            "Sprint",
+            "Deadline",
+        ]
+
+    asyncio.run(exercise())
+
 
 def test_build_weekly_dashboard_embed_is_public_snapshot():
     dashboard = ProjectDashboard(

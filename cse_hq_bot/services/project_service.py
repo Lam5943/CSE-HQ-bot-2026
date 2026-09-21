@@ -24,6 +24,9 @@ class ProjectService:
             **counts,
         )
 
+    def ensure_can_manage(self, actor: Actor) -> None:
+        ensure_can_manage_project(actor)
+
     def update_settings(self, actor: Actor, name: str, description: str) -> None:
         ensure_can_manage_project(actor)
         self.repo.update_settings(name=name, description=description)
