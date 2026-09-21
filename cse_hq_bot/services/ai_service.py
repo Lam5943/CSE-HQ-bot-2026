@@ -164,7 +164,9 @@ class AIService:
         context_records = self._retrieve_records(actor, plan)
         web_intent = self.web_research_intent_detector.detect(question)
         should_research_web = web_intent.explicit or (
-            web_intent.required and plan.strategy in {"search", "fallback_search"}
+            web_intent.required
+            and plan.strategy in {"search", "fallback_search"}
+            and not context_records
         )
         web_records: list[RetrievedContextRecord] = []
         if should_research_web:
