@@ -1139,6 +1139,27 @@ class CSEHQBot(commands.Bot):
         error: CSEHQError,
         user_text: str | None = None,
     ) -> str:
+        if user_text is None:
+            if isinstance(error, AISessionBusyError):
+                return "This AI session is busy. Try again in a moment."
+            if isinstance(error, AISessionClosedError):
+                return "This AI session is closed. Start a new session from /ai."
+            if isinstance(error, AISessionConflictError):
+                return "This Discord thread is already linked to another AI session."
+            if isinstance(error, PermissionDeniedError):
+                return "You are not allowed to access this AI session."
+            if isinstance(error, AIConfigurationError):
+                return "AI provider configuration is unavailable right now."
+            if isinstance(error, AIRateLimitError):
+                return "AI provider is busy right now. Please try again later."
+            if isinstance(error, AITimeoutError):
+                return "AI provider timed out. Please try again."
+            if isinstance(error, AIProviderError):
+                return "AI provider is unavailable right now. Please try again later."
+            if isinstance(error, InvalidInputError):
+                return str(error)
+            return "Unable to handle this AI request right now."
+
         text = str(user_text or "")
         style = PersonalityPolicy().infer_style(text)
         vietnamese = bool(
