@@ -33,6 +33,7 @@ from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_service import ProjectService
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
+from cse_hq_bot.ui_theme import list_entry, metric_value, set_surface_footer, surface_embed
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 
 
 def build_ai_home_embed() -> discord.Embed:
-    embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
+    embed = surface_embed("ai", description="### Private teammate workspace")
     embed.description = (
         "Private, project-grounded help from a mentor-style teammate, plus "
         "explicitly confirmed internal actions."
@@ -163,7 +164,7 @@ def build_ai_home_embed() -> discord.Embed:
 
 
 def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
-    embed = discord.Embed(title="My AI Sessions", color=discord.Color.blurple())
+    embed = surface_embed("ai", title="My Sessions")
     if not sessions:
         embed.description = "No AI sessions found."
         return embed
@@ -377,7 +378,7 @@ def build_tasks_embed(
     filters_label: str = "None",
     stats: dict | None = None,
 ) -> discord.Embed:
-    embed = discord.Embed(title="Task Management", color=discord.Color.green())
+    embed = surface_embed("tasks", description="### Work queue\nTrack ownership, urgency, and execution state.")
     stats = stats or {}
     embed.add_field(name="Scope", value=mode_label, inline=True)
     embed.add_field(name="Filters", value=filters_label, inline=True)
@@ -431,8 +432,8 @@ def build_bugs_embed(
     filters_label: str = "None",
     stats: dict | None = None,
 ) -> discord.Embed:
-    title = "Bug Tracker (All)" if show_all else "Bug Tracker (Open)"
-    embed = discord.Embed(title=title, color=discord.Color.orange())
+    title = "All Bugs" if show_all else "Open Bugs"
+    embed = surface_embed("bugs", title=title, description="### Defect queue\nSee what is broken, how severe it is, and what needs attention.")
     stats = stats or {}
     embed.add_field(name="Filters", value=filters_label, inline=True)
     embed.add_field(name="Total", value=str(len(bugs)), inline=True)
@@ -488,7 +489,7 @@ def build_meetings_embed(
     page: int = 0,
     mode_label: str = "Upcoming",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Meetings", color=discord.Color.blurple())
+    embed = surface_embed("meetings", description="### Team syncs\nUpcoming, active, and historical collaboration sessions.")
     embed.add_field(name="Scope", value=mode_label, inline=True)
     embed.add_field(name="Total", value=str(len(meetings)), inline=True)
     embed.add_field(
@@ -575,7 +576,7 @@ def build_decisions_embed(
     page: int = 0,
     mode_label: str = "Browse",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Decisions", color=discord.Color.gold())
+    embed = surface_embed("decisions", description="### Decision memory\nImportant choices, rationale, and context.")
     embed.add_field(name="Scope", value=mode_label, inline=True)
     embed.add_field(name="Total", value=str(len(decisions)), inline=True)
     embed.add_field(
@@ -630,7 +631,7 @@ def build_standup_embed(
     page: int = 0,
     mode_label: str = "Today's Team",
 ) -> discord.Embed:
-    embed = discord.Embed(title="Standup", color=discord.Color.green())
+    embed = surface_embed("standup", description="### Daily pulse\nCurrent work, momentum, and blockers.")
     embed.add_field(
         name="Today's Status",
         value="Submitted" if today_entry else "Not submitted",
@@ -1527,7 +1528,7 @@ class TasksView(OwnedView):
 
 
 def build_github_overview_embed(data: dict) -> discord.Embed:
-    embed = discord.Embed(title="🐙 GitHub — CSE-HQ", color=discord.Color.dark_teal())
+    embed = surface_embed("github", description="### Repository pulse")
     repository = data.get("repository")
     if not repository:
         embed.description = "GitHub cache is empty. A Leader or Co-Lead can run Sync."
