@@ -60,7 +60,7 @@ def build_health_embed(report: HealthReport) -> discord.Embed:
         HealthState.FAILED: "❌",
     }
     embed = discord.Embed(
-        title="CSE-HQ Health",
+        title="🩺 CSE-HQ • System Health",
         description=(
             f"Overall: **{report.overall.value}**\n"
             f"Application version: `{report.version}`"
@@ -136,7 +136,7 @@ def build_ai_home_embed() -> discord.Embed:
         "explicitly confirmed internal actions."
     )
     embed.add_field(
-        name="Capabilities",
+        name="🧠 Capabilities",
         value=(
             "Grounded Q&A, PNG/JPEG/WEBP image analysis, plus bounded Task, Bug, "
             "Meeting, Decision, and own Standup action proposals"
@@ -144,7 +144,7 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Boundaries",
+        name="🛡️ Boundaries",
         value=(
             "Read-only by default. No mutation occurs without your explicit "
             "confirmation; GitHub remains read-only."
@@ -152,14 +152,14 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Style",
+        name="✨ Personality",
         value=(
             "Experienced mentor, low-pressure teammate, and lightly funny when the "
             "situation allows it. CSE-HQ challenges weak assumptions without judging people."
         ),
         inline=False,
     )
-    embed.add_field(name="Actions", value="New Session • My Sessions", inline=False)
+    embed.add_field(name="⚡ Actions", value="New Session • My Sessions", inline=False)
     return embed
 
 
@@ -192,12 +192,12 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
         "teammate rather than a manager."
     )
     embed.add_field(
-        name="Source of truth",
+        name="📚 Source of truth",
         value="Current CSE-HQ project records always win over prior AI replies.",
         inline=False,
     )
     embed.add_field(
-        name="Boundaries",
+        name="🛡️ Boundaries",
         value=(
             "Actions require Confirm, expire automatically, and are revalidated "
             "before execution. GitHub remains read-only."
@@ -214,10 +214,10 @@ def build_ai_action_embed(proposal: ActionProposal) -> discord.Embed:
         description=f"### Proposed change\n{proposal.summary}",
         color=discord.Color.gold(),
     )
-    embed.add_field(name="Status", value=proposal.status, inline=True)
-    embed.add_field(name="Expires", value=proposal.expires_at, inline=True)
+    embed.add_field(name="📌 Status", value=proposal.status, inline=True)
+    embed.add_field(name="⏳ Expires", value=proposal.expires_at, inline=True)
     embed.add_field(
-        name="Safety",
+        name="🛡️ Safety",
         value=(
             "No project data has changed. The action executes only after the proposal "
             "owner presses Confirm, and permissions/state are checked again."
@@ -388,13 +388,13 @@ def build_tasks_embed(
 ) -> discord.Embed:
     embed = surface_embed("tasks", description="### Work queue\nTrack ownership, urgency, and execution state.")
     stats = stats or {}
-    embed.add_field(name="Scope", value=mode_label, inline=True)
-    embed.add_field(name="Filters", value=filters_label, inline=True)
-    embed.add_field(name="Total", value=str(len(tasks)), inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
+    embed.add_field(name="🔎 Filters", value=filters_label, inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(tasks), "Tasks"), inline=True)
     if stats:
-        embed.add_field(name="My Tasks", value=str(stats.get("my_tasks", 0)), inline=True)
-        embed.add_field(name="High Priority", value=str(stats.get("high_priority", 0)), inline=True)
-        embed.add_field(name="With Deadline", value=str(stats.get("with_deadline", 0)), inline=True)
+        embed.add_field(name="👤 My Tasks", value=metric_value(stats.get("my_tasks", 0), "Tasks"), inline=True)
+        embed.add_field(name="🔥 High Priority", value=metric_value(stats.get("high_priority", 0), "Tasks"), inline=True)
+        embed.add_field(name="📅 With Deadline", value=metric_value(stats.get("with_deadline", 0), "Tasks"), inline=True)
     if not tasks:
         embed.description = "No tasks found."
         return embed
@@ -443,7 +443,7 @@ def build_bugs_embed(
     title = "All Bugs" if show_all else "Open Bugs"
     embed = surface_embed("bugs", title=title, description="### Defect queue\nSee what is broken, how severe it is, and what needs attention.")
     stats = stats or {}
-    embed.add_field(name="Filters", value=filters_label, inline=True)
+    embed.add_field(name="🔎 Filters", value=filters_label, inline=True)
     embed.add_field(name="Total", value=str(len(bugs)), inline=True)
     embed.add_field(name="Open", value=str(stats.get("open", 0)), inline=True)
     if stats:
@@ -499,7 +499,7 @@ def build_meetings_embed(
     mode_label: str = "Upcoming",
 ) -> discord.Embed:
     embed = surface_embed("meetings", description="### Team syncs\nUpcoming, active, and historical collaboration sessions.")
-    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
     embed.add_field(name="Total", value=str(len(meetings)), inline=True)
     embed.add_field(
         name="Status",
@@ -586,7 +586,7 @@ def build_decisions_embed(
     mode_label: str = "Browse",
 ) -> discord.Embed:
     embed = surface_embed("decisions", description="### Decision memory\nImportant choices, rationale, and context.")
-    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
     embed.add_field(name="Total", value=str(len(decisions)), inline=True)
     embed.add_field(
         name="Linked Meetings",
@@ -650,7 +650,7 @@ def build_standup_embed(
         value="Submitted" if today_entry else "Not submitted",
         inline=True,
     )
-    embed.add_field(name="Scope", value=mode_label, inline=True)
+    embed.add_field(name="📚 Scope", value=mode_label, inline=True)
     embed.add_field(name="Total", value=str(len(entries)), inline=True)
     if today_entry:
         embed.add_field(
