@@ -792,7 +792,7 @@ class CSEHQBot(commands.Bot):
     async def on_member_join(self, member: discord.Member) -> None:
         if not self.welcome_enabled or member.bot:
             return
-        channel = self._resolve_welcome_channel(member.guild)
+        channel = self._resolve_welcome_channel(member)
         if channel is None:
             logger.warning(
                 "Welcome message skipped because no writable text channel was found",
@@ -832,8 +832,9 @@ class CSEHQBot(commands.Bot):
 
     def _resolve_welcome_channel(
         self,
-        guild: discord.Guild,
+        member: discord.Member,
     ) -> discord.TextChannel | None:
+        guild = member.guild
         candidates: list[discord.TextChannel] = []
         if self.welcome_channel_id:
             try:
@@ -854,8 +855,13 @@ class CSEHQBot(commands.Bot):
         if bot_member is None:
             return None
         for channel in candidates:
-            permissions = channel.permissions_for(bot_member)
-            if permissions.view_channel and permissions.send_messages:
+            bot_permissions = channel.permissions_for(bot_member)
+            member_permissions = channel.permissions_for(member)
+            if (
+                bot_permissions.view_channel
+                and bot_permissions.send_messages
+                and member_permissions.view_channel
+            ):
                 return channel
         return None
 
