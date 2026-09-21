@@ -46,6 +46,7 @@ from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
 from cse_hq_bot.services.weekly_dashboard_service import WeeklyDashboardService
+from cse_hq_bot.services.web_research_service import TavilyWebResearchService
 
 
 class ServiceContainer:
@@ -181,6 +182,12 @@ class ServiceContainer:
         )
         self.retrieval_planner = RetrievalPlanner()
         self.prompt_builder = PromptBuilder()
+        self.web_research_service = TavilyWebResearchService(
+            config.tavily_api_key,
+            enabled=config.web_research_enabled,
+            max_results=config.web_research_max_results,
+            timeout_seconds=config.web_research_timeout,
+        )
         self.ai_service = AIService(
             provider,
             self.project_context_service,
@@ -189,6 +196,7 @@ class ServiceContainer:
             max_context_items=config.ai_max_context_items,
             request_timeout=config.ai_request_timeout,
             action_interpreter=self.ai_action_interpreter,
+            web_research_service=self.web_research_service,
         )
         self.ai_session_service = AISessionService(
             ai_session_repo,
