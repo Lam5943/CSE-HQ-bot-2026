@@ -366,11 +366,15 @@ Opens a private interactive dashboard Embed with:
 `/dashboard` remains a private realtime management surface. Public team visibility is handled separately:
 
 - `/setup dashboard` stores the target text channel and weekly schedule in SQLite. Defaults are Monday at 09:00 in `Asia/Ho_Chi_Minh`.
-- `/weekly_dashboard` lets a Leader/CoLead manually publish the current ISO-week snapshot.
+- `/weekly_dashboard` lets a Leader/CoLead manually publish or refresh the current ISO-week snapshot. If the stored message still exists in the configured channel, CSE-HQ edits it in place; if it was deleted or the configured channel changed, CSE-HQ creates a replacement and updates the stored publication mapping.
 - The long-running bot process checks the schedule once per minute and publishes the first due snapshot for the week.
 - If the bot is offline at the scheduled time, it catches up later in the same ISO week.
-- `dashboard_publications.week_key` is unique, so one bot process cannot intentionally publish the same week twice.
+- `dashboard_publications.week_key` remains unique so scheduled publishing stays idempotent; manual refresh updates the existing publication instead of creating uncontrolled duplicates.
 - Public snapshots use the same polished status/progress presentation without management controls; project mutations remain behind the existing private command/service permission boundaries.
+
+### CSE-HQ UI Design System v1
+
+Discord does not expose arbitrary embed font-size controls, so CSE-HQ improves readability through information hierarchy rather than custom typography. Dashboard surfaces share one visual language: a branded surface title, short subtitle, compact three-column KPI cards where useful, spacious two-line list rows, semantic status colors only when status matters, and a consistent footer. Detail cards reuse the same shell so moving from a list into an individual Task, Bug, Meeting, Decision, GitHub item, or AI surface does not feel like switching products.
 
 ### `/tasks`
 
