@@ -1,5 +1,8 @@
 # CSE-HQ Bot MVP
 
+[![CI](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/ci.yml/badge.svg)](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/codeql.yml/badge.svg)](https://github.com/Lam5943/CSE-HQ-bot-2026/actions/workflows/codeql.yml)
+
 CSE-HQ is a Discord bot MVP for project coordination. It provides:
 
 - Role-aware project, task, and bug operations for Leaders, Co-Leads, and Members
@@ -9,6 +12,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - A private, grounded assistant with persistent sessions and explicitly confirmed internal actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
+- Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
 
 ## Requirements
 
@@ -489,19 +493,48 @@ no GitHub writes and uses no AI for event classification.
 
 ## Tests
 
-Run the test suite with:
+Install the development dependencies, then run the same validation gates used by
+CI:
 
 ```bash
-pytest
+python -m pytest
+ruff check cse_hq_bot tests tools
+python -m compileall -q cse_hq_bot tests tools
+bandit -q -r cse_hq_bot tools
+python -m pip check
+pip-audit
+python tools/check_secret_signatures.py
 ```
 
-Latest Forum Publishing validation (2026-09-21): 231 offline tests passed. Python
-compilation, Ruff and Bandit on the changed code, `pip check`, `pip-audit`, and
-working-tree plus Git-history secret-signature scans also passed. The intentional
-`0.0.0.0` listener default has a documented Bandit B104 suppression because it is
+The `CI` workflow runs these gates for every pull request and every push to
+`main`, using Python 3.12 and no live Discord, GitHub, Gemini, OpenAI, or webhook
+credentials. Superseded runs for the same pull request or branch are cancelled.
+The dependency cache is optional and contains no environment files, credentials,
+databases, or runtime state.
+
+The separate `CodeQL` workflow analyzes Python on pull requests, pushes to
+`main`, and a weekly schedule. It has read-only repository access plus only the
+`security-events: write` permission required to upload analysis results. CodeQL
+status must be taken from the GitHub check; local validation is not reported as a
+CodeQL pass.
+
+Latest local repository validation (2026-09-21): 232 offline tests passed. Ruff,
+Python compilation, Bandit, `pip check`, `pip-audit`, and tracked-file plus
+Git-history secret-signature scanning also passed. The previous 18 Ruff findings
+were fixed. The five B608 findings were removed by replacing dynamic SQL with
+fixed, allowlisted, parameterized statements. The intentional `0.0.0.0` listener
+default retains its narrowly documented Bandit B104 suppression because it is
 deployment-controlled and required by the webhook configuration contract.
-Repository-wide Ruff and Bandit still report pre-existing style findings and five
-dynamic-SQL heuristics outside this milestone.
+
+### Recommended main branch protection
+
+Require pull requests before merge and require these checks:
+
+- `Tests / Quality`
+- `CodeQL`
+
+Also require branches to be up to date before merging. Branch protection remains
+an administrator setting and is not modified by these workflows.
 
 ## Project Notes
 

@@ -1,6 +1,14 @@
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import NotFoundError
 
+_UPDATE_STATEMENTS = {
+    "title": "UPDATE bugs SET title = ? WHERE id = ?",
+    "description": "UPDATE bugs SET description = ? WHERE id = ?",
+    "status": "UPDATE bugs SET status = ? WHERE id = ?",
+    "severity": "UPDATE bugs SET severity = ? WHERE id = ?",
+    "assignee_id": "UPDATE bugs SET assignee_id = ? WHERE id = ?",
+}
+
 
 class BugRepository:
     def __init__(self, db: Database):
@@ -41,18 +49,16 @@ class BugRepository:
     def update(self, bug_id: int, fields: dict) -> None:
         if not fields:
             return
-        assignments = []
-        values = []
-        for key, value in fields.items():
-            assignments.append(f"{key} = ?")
-            values.append(value)
-        if fields.get("status") == "resolved":
-            assignments.append("resolved_at = CURRENT_TIMESTAMP")
-        values.append(bug_id)
         with self.db.connect() as conn:
-            cur = conn.execute(
-                f"UPDATE bugs SET {', '.join(assignments)} WHERE id = ?",
-                values,
-            )
-            if cur.rowcount == 0:
-                raise NotFoundError(f"Bug {bug_id} not found")
+            for key, value in fields.items():
+                statement = _UPDATE_STATEMENTS.get(key)
+                if statement is None:
+                    raise ValueError(f"Unsupported bug field: {key}")
+                cur = conn.execute(statement, (value, bug_id))
+                if cur.rowcount == 0:
+                    raise NotFoundError(f"Bug {bug_id} not found")
+            if fields.get("status") == "resolved":
+                conn.execute(
+                    "UPDATE bugs SET resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (bug_id,),
+                )

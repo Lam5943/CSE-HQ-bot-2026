@@ -18,8 +18,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "bandit>=1.9.0,<2",
+  "pip-audit>=2.10.0,<3",
   "pytest>=9.0.3,<10",
-  "pytest-cov>=5.0.0,<6"
+  "pytest-cov>=5.0.0,<6",
+  "ruff>=0.16.0,<1"
 ]
 
 [tool.pytest.ini_options]

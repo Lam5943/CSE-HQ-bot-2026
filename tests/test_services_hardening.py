@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 from cse_hq_bot.db import Database
-from cse_hq_bot.errors import InvalidTransitionError, NotFoundError, PermissionDeniedError
+from cse_hq_bot.errors import (
+    InvalidTransitionError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.models import Actor, BugStatus, Role, TaskStatus
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
@@ -77,7 +81,6 @@ def test_bug_transitions_valid_invalid_unauthorized_and_missing(services):
 def test_assignment_permissions_and_missing_targets(services):
     leader = Actor("lead", Role.LEADER)
     member_a = Actor("a", Role.MEMBER)
-    member_b = Actor("b", Role.MEMBER)
     member_c = Actor("c", Role.MEMBER)
 
     task_id = services["task"].create_task(member_a, "task", "desc", 3, assignee_id="a")

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
@@ -50,7 +50,7 @@ class CollaborationService:
             previous="",
             current=update_text,
             blockers=blockers,
-            entry_date=date.today().isoformat(),
+            entry_date=datetime.now(UTC).date().isoformat(),
             allow_empty_previous=True,
         )
 

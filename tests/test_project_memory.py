@@ -1,11 +1,15 @@
 import sqlite3
-from datetime import date
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from cse_hq_bot.db import Database
-from cse_hq_bot.errors import InvalidTransitionError, NotFoundError, PermissionDeniedError
+from cse_hq_bot.errors import (
+    InvalidTransitionError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.models import Actor, MeetingStatus, Role
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
@@ -279,7 +283,9 @@ def test_collaboration_service_compatibility_wrappers_preserve_legacy_inputs(tmp
     collab.submit_standup(member, "Legacy update", "Blocked by review")
 
     meeting = repo.get_meeting(meeting_id)
-    standup = repo.get_standup_for_user_date("member", date.today().isoformat())
+    standup = repo.get_standup_for_user_date(
+        "member", datetime.now(UTC).date().isoformat()
+    )
 
     assert meeting["meeting_date"] == "2026-09-20 00:00"
     assert standup is not None

@@ -1,18 +1,18 @@
 import logging
+from typing import ClassVar
 
 from cse_hq_bot.errors import InvalidTransitionError, PermissionDeniedError
 from cse_hq_bot.identifiers import task_code
 from cse_hq_bot.models import Actor, Role, TaskStatus
-from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.permissions import ensure_can_modify_task
+from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.task_repository import TaskRepository
-
 
 logger = logging.getLogger(__name__)
 
 
 class TaskService:
-    _TRANSITIONS: dict[str, set[str]] = {
+    _TRANSITIONS: ClassVar[dict[str, set[str]]] = {
         TaskStatus.TODO.value: {
             TaskStatus.IN_PROGRESS.value,
             TaskStatus.BLOCKED.value,

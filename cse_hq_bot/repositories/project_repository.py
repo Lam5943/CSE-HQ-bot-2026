@@ -1,5 +1,15 @@
 from cse_hq_bot.db import Database
 
+_UPDATE_STATEMENTS = {
+    "name": "UPDATE project_settings SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "description": "UPDATE project_settings SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "goal": "UPDATE project_settings SET goal = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "phase": "UPDATE project_settings SET phase = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "sprint": "UPDATE project_settings SET sprint = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "deadline": "UPDATE project_settings SET deadline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+    "status": "UPDATE project_settings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+}
+
 
 class ProjectRepository:
     def __init__(self, db: Database):
@@ -35,20 +45,12 @@ class ProjectRepository:
     def update_management(self, fields: dict[str, str]) -> None:
         if not fields:
             return
-        assignments = []
-        values = []
-        for key, value in fields.items():
-            assignments.append(f"{key} = ?")
-            values.append(value)
         with self.db.connect() as conn:
-            conn.execute(
-                f"""
-                UPDATE project_settings
-                SET {", ".join(assignments)}, updated_at = CURRENT_TIMESTAMP
-                WHERE id = 1
-                """,
-                values,
-            )
+            for key, value in fields.items():
+                statement = _UPDATE_STATEMENTS.get(key)
+                if statement is None:
+                    raise ValueError(f"Unsupported project field: {key}")
+                conn.execute(statement, (value,))
 
     def get_summary_counts(self) -> dict:
         with self.db.connect() as conn:

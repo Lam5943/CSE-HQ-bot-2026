@@ -7,7 +7,6 @@ from cse_hq_bot.permissions import ensure_can_manage_decisions
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 
-
 logger = logging.getLogger(__name__)
 
 

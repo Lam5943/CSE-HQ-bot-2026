@@ -1,7 +1,6 @@
 from cse_hq_bot.errors import PermissionDeniedError
 from cse_hq_bot.models import Actor, Role
 
-
 LEADERSHIP_ROLES = {Role.LEADER, Role.CO_LEAD}
 
 
