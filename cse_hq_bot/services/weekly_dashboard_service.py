@@ -95,7 +95,7 @@ class WeeklyDashboardService:
         ensure_can_manage_project(actor)
         settings = self._require_settings()
         local_now = self._local_now(settings, now)
-        return self._prepare(settings, local_now)
+        return self._prepare(settings, local_now, allow_existing=True)
 
     def prepare_due(self, now: datetime | None = None) -> dict | None:
         settings = self.repo.get_settings()
@@ -124,6 +124,21 @@ class WeeklyDashboardService:
             snapshot_json=snapshot_json,
         )
 
+    def replace_publication(
+        self,
+        *,
+        week_key: str,
+        channel_id: str,
+        message_id: str,
+        snapshot_json: str,
+    ) -> None:
+        self.repo.upsert_publication(
+            week_key=week_key,
+            channel_id=channel_id,
+            message_id=message_id,
+            snapshot_json=snapshot_json,
+        )
+
     def get_publication(self, week_key: str) -> dict | None:
         return self.repo.get_publication(week_key)
 
@@ -132,10 +147,16 @@ class WeeklyDashboardService:
         iso_year, iso_week, _ = now.isocalendar()
         return f"{iso_year}-W{iso_week:02d}"
 
-    def _prepare(self, settings: dict, local_now: datetime) -> dict:
+    def _prepare(
+        self,
+        settings: dict,
+        local_now: datetime,
+        *,
+        allow_existing: bool = False,
+    ) -> dict:
         week_key = self.week_key(local_now)
         existing = self.repo.get_publication(week_key)
-        if existing is not None:
+        if existing is not None and not allow_existing:
             raise InvalidInputError(
                 f"Weekly dashboard {week_key} has already been published"
             )
@@ -147,6 +168,7 @@ class WeeklyDashboardService:
             "channel_id": str(settings["channel_id"]),
             "dashboard": dashboard,
             "snapshot_json": json.dumps(snapshot, sort_keys=True),
+            "existing_publication": existing,
         }
 
     @staticmethod
