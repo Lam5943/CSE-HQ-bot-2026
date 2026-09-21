@@ -281,6 +281,25 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
     return embed
 
 
+def build_weekly_dashboard_embed(
+    dashboard: ProjectDashboard,
+    week_key: str,
+) -> discord.Embed:
+    embed = build_dashboard_embed(dashboard)
+    embed.title = f"{dashboard.name} Weekly Dashboard"
+    embed.description = (
+        f"**{week_key}**\n"
+        f"{dashboard.description}"
+    )
+    embed.set_footer(
+        text=(
+            f"Weekly snapshot • Source updated "
+            f"{dashboard.updated_at.isoformat(sep=' ', timespec='seconds')}"
+        )
+    )
+    return embed
+
+
 def build_tasks_embed(
     tasks: list[dict],
     *,

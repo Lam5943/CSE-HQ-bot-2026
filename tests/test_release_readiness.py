@@ -88,13 +88,14 @@ def test_fresh_database_and_command_surface_start_from_zero(tmp_path, monkeypatc
             "standup",
             "github",
             "weekly_report",
+            "weekly_dashboard",
             "ai",
             "health",
             "setup",
         }
         setup = bot.tree.get_command("setup")
         assert setup is not None
-        assert {command.name for command in setup.commands} == {"forums"}
+        assert {command.name for command in setup.commands} == {"forums", "dashboard"}
         await bot.close()
 
     asyncio.run(audit_commands())
@@ -177,6 +178,8 @@ def test_representative_legacy_database_upgrade_is_additive_and_idempotent(tmp_p
             "project_external_links",
             "forum_settings",
             "forum_publications",
+            "dashboard_settings",
+            "dashboard_publications",
             "github_webhook_deliveries",
         } <= tables
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1

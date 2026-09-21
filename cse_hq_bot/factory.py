@@ -15,6 +15,9 @@ from cse_hq_bot.repositories.ai_action_repository import AIActionProposalReposit
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
+from cse_hq_bot.repositories.dashboard_publication_repository import (
+    DashboardPublicationRepository,
+)
 from cse_hq_bot.repositories.forum_repository import ForumRepository
 from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.repositories.project_repository import ProjectRepository
@@ -41,6 +44,7 @@ from cse_hq_bot.services.report_service import ReportService
 from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
+from cse_hq_bot.services.weekly_dashboard_service import WeeklyDashboardService
 
 
 class ServiceContainer:
@@ -59,8 +63,13 @@ class ServiceContainer:
         activity_repo = ActivityRepository(db)
         github_repo = GitHubRepositoryCache(db)
         forum_repo = ForumRepository(db)
+        dashboard_publication_repo = DashboardPublicationRepository(db)
 
         self.project_service = ProjectService(project_repo)
+        self.weekly_dashboard_service = WeeklyDashboardService(
+            dashboard_publication_repo,
+            self.project_service,
+        )
         self.activity_service = ActivityService(activity_repo)
         self.task_service = TaskService(task_repo, activity_repo)
         self.forum_publishing_service = ForumPublishingService(forum_repo)

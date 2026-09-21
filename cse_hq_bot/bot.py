@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -44,6 +45,7 @@ from cse_hq_bot.ui import (
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
+    build_weekly_dashboard_embed,
     split_ai_response,
 )
 from cse_hq_bot.version import application_version
@@ -68,6 +70,7 @@ class CSEHQBot(commands.Bot):
         self.container = container
         self.enable_message_content = enable_message_content
         self._message_content_guidance_sent: set[tuple[str, str]] = set()
+        self._weekly_dashboard_task: asyncio.Task[None] | None = None
         forum_service = getattr(self.container, "forum_publishing_service", None)
         if forum_service is not None:
             forum_service.set_gateway(DiscordForumGateway(self))
@@ -293,6 +296,58 @@ class CSEHQBot(commands.Bot):
         )
 
         @setup.command(
+            name="dashboard",
+            description="Configure the public weekly dashboard channel and schedule",
+        )
+        @app_commands.describe(
+            channel="Text channel where weekly dashboards are published",
+            weekday="Publish weekday in English, e.g. Monday",
+            publish_time="24-hour local time in HH:MM format",
+        )
+        async def setup_dashboard(
+            interaction: discord.Interaction,
+            channel: discord.TextChannel,
+            weekday: str = "monday",
+            publish_time: str = "09:00",
+        ) -> None:
+            actor = resolve_actor_from_interaction(interaction)
+            try:
+                guild = interaction.guild
+                bot_member = guild.me if guild is not None else None
+                if bot_member is None:
+                    raise InvalidInputError("Weekly dashboard setup must be used in a server")
+                permissions = channel.permissions_for(bot_member)
+                if not permissions.view_channel or not permissions.send_messages:
+                    raise InvalidInputError(
+                        "CSE-HQ needs View Channel and Send Messages permissions in that channel"
+                    )
+                settings = self.container.weekly_dashboard_service.configure(
+                    actor,
+                    channel_id=str(channel.id),
+                    weekday=weekday,
+                    publish_time=publish_time,
+                )
+                weekday_name = (
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                    "Sunday",
+                )[int(settings["weekday"])]
+                await interaction.response.send_message(
+                    (
+                        f"Weekly dashboard configured for {channel.mention}: "
+                        f"{weekday_name} at {settings['publish_time']} "
+                        f"({settings['timezone']})."
+                    ),
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                await interaction.response.send_message(str(error), ephemeral=True)
+
+        @setup.command(
             name="forums",
             description="Configure existing Forum channels for automatic publishing",
         )
@@ -336,6 +391,38 @@ class CSEHQBot(commands.Bot):
             except CSEHQError as error:
                 await interaction.response.send_message(str(error), ephemeral=True)
 
+        @app_commands.command(
+            name="weekly_dashboard",
+            description="Publish this week's dashboard snapshot to the configured team channel",
+        )
+        async def weekly_dashboard(interaction: discord.Interaction) -> None:
+            actor = resolve_actor_from_interaction(interaction)
+            try:
+                payload = self.container.weekly_dashboard_service.prepare_manual(actor)
+                await interaction.response.defer(ephemeral=True)
+                message = await self._publish_weekly_dashboard(payload)
+                await interaction.followup.send(
+                    f"Published {payload['week_key']} weekly dashboard: {message.jump_url}",
+                    ephemeral=True,
+                )
+            except CSEHQError as error:
+                if interaction.response.is_done():
+                    await interaction.followup.send(str(error), ephemeral=True)
+                else:
+                    await interaction.response.send_message(str(error), ephemeral=True)
+            except Exception as error:  # pragma: no cover - Discord transport boundary
+                logger.exception("Weekly dashboard publication failed", exc_info=error)
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "Unable to publish the weekly dashboard right now.",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "Unable to publish the weekly dashboard right now.",
+                        ephemeral=True,
+                    )
+
         self.tree.add_command(dashboard)
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
@@ -346,6 +433,7 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(ai)
         self.tree.add_command(github)
         self.tree.add_command(health)
+        self.tree.add_command(weekly_dashboard)
         self.tree.add_command(setup)
 
         if self.application_id is not None:
@@ -359,12 +447,104 @@ class CSEHQBot(commands.Bot):
                     "command_count": len(synced),
                 },
             )
+            if self._weekly_dashboard_task is None:
+                self._weekly_dashboard_task = asyncio.create_task(
+                    self._weekly_dashboard_loop()
+                )
 
         webhook_server = getattr(self.container, "github_webhook_server", None)
         if webhook_server is not None:
             await webhook_server.start()
 
+    async def _publish_weekly_dashboard(self, payload: dict) -> discord.Message:
+        channel_id = int(payload["channel_id"])
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise InvalidInputError(
+                "Configured weekly dashboard channel is not a text channel"
+            )
+        guild = channel.guild
+        bot_member = guild.me
+        if bot_member is None:
+            raise InvalidInputError("Unable to resolve the bot member in this server")
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.view_channel or not permissions.send_messages:
+            raise InvalidInputError(
+                "CSE-HQ cannot send messages in the configured weekly dashboard channel"
+            )
+
+        message = await channel.send(
+            embed=build_weekly_dashboard_embed(
+                payload["dashboard"],
+                payload["week_key"],
+            )
+        )
+        recorded = self.container.weekly_dashboard_service.record_publication(
+            week_key=payload["week_key"],
+            channel_id=str(channel.id),
+            message_id=str(message.id),
+            snapshot_json=payload["snapshot_json"],
+        )
+        if not recorded:
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                logger.warning(
+                    "Duplicate weekly dashboard message could not be deleted",
+                    extra={
+                        "component": "weekly_dashboard",
+                        "operation": "dedupe_cleanup",
+                        "result": "failed",
+                        "week_key": payload["week_key"],
+                    },
+                )
+            raise InvalidInputError(
+                f"Weekly dashboard {payload['week_key']} has already been published"
+            )
+        return message
+
+    async def _weekly_dashboard_loop(self) -> None:
+        while not self.is_closed():
+            try:
+                payload = self.container.weekly_dashboard_service.prepare_due()
+                if payload is not None:
+                    message = await self._publish_weekly_dashboard(payload)
+                    logger.info(
+                        "Weekly dashboard published",
+                        extra={
+                            "component": "weekly_dashboard",
+                            "operation": "scheduled_publish",
+                            "result": "success",
+                            "week_key": payload["week_key"],
+                            "channel_id": payload["channel_id"],
+                            "message_id": str(message.id),
+                        },
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.exception(
+                    "Scheduled weekly dashboard publication failed",
+                    exc_info=error,
+                    extra={
+                        "component": "weekly_dashboard",
+                        "operation": "scheduled_publish",
+                        "result": "failed",
+                        "error_category": error.__class__.__name__,
+                    },
+                )
+            await asyncio.sleep(60)
+
     async def close(self) -> None:
+        if self._weekly_dashboard_task is not None:
+            self._weekly_dashboard_task.cancel()
+            try:
+                await self._weekly_dashboard_task
+            except asyncio.CancelledError:
+                pass
+            self._weekly_dashboard_task = None
         webhook_server = getattr(self.container, "github_webhook_server", None)
         if webhook_server is not None:
             await webhook_server.stop()
