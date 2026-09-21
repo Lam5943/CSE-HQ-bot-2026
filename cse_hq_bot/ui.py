@@ -1387,38 +1387,279 @@ class BugAssignModal(discord.ui.Modal, title="Assign Bug"):
             )
 
 
+class DashboardStatusSelect(discord.ui.Select):
+    STATUS_OPTIONS = (
+        ("On Track", "🟢", "Healthy execution"),
+        ("At Risk", "🟠", "Needs attention"),
+        ("Blocked", "🔴", "Execution is blocked"),
+        ("Planning", "🔵", "Planning / scoping"),
+        ("Paused", "⏸️", "Temporarily paused"),
+        ("Complete", "✅", "Project milestone completed"),
+    )
+
+    def __init__(self, control_view: "DashboardControlView", current_status: str):
+        self.control_view = control_view
+        super().__init__(
+            placeholder="Set project status",
+            min_values=1,
+            max_values=1,
+            row=0,
+            options=[],
+        )
+        self.sync_status(current_status)
+
+    def sync_status(self, current_status: str) -> None:
+        normalized = current_status.strip().lower()
+        self.options = [
+            discord.SelectOption(
+                label=label,
+                value=label,
+                emoji=emoji,
+                description=description,
+                default=label.lower() == normalized,
+            )
+            for label, emoji, description in self.STATUS_OPTIONS
+        ]
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        actor = self.control_view.actor_resolver(interaction)
+        try:
+            self.control_view.project_service.update_management(
+                actor,
+                status=self.values[0],
+            )
+            await self.control_view.render(
+                interaction,
+                notice=f"Project status set to {self.values[0]}.",
+            )
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
+            )
+        except CSEHQError as error:
+            logger.exception("Project status update failed", exc_info=error)
+            await interaction.response.send_message(
+                "Unable to update project status right now.",
+                ephemeral=True,
+            )
+
+
+class DashboardControlView(OwnedView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        project_service: ProjectService,
+        task_service: TaskService,
+        dashboard: ProjectDashboard,
+    ):
+        super().__init__(owner_id)
+        self.actor_resolver = actor_resolver
+        self.project_service = project_service
+        self.task_service = task_service
+        self.status_select = DashboardStatusSelect(self, dashboard.status)
+        self.add_item(self.status_select)
+
+    async def render(
+        self,
+        interaction: discord.Interaction,
+        *,
+        notice: str | None = None,
+    ) -> None:
+        dashboard = self.project_service.get_dashboard()
+        self.status_select.sync_status(dashboard.status)
+        await interaction.response.edit_message(
+            embed=build_dashboard_control_embed(dashboard, notice=notice),
+            view=self,
+        )
+
+    @discord.ui.button(
+        label="Project Info",
+        emoji="🪪",
+        style=discord.ButtonStyle.primary,
+        row=1,
+    )
+    async def project_info(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            self.project_service.ensure_can_manage(actor)
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(
+            ProjectOverviewModal(self, self.project_service.get_dashboard())
+        )
+
+    @discord.ui.button(
+        label="Execution",
+        emoji="⚙️",
+        style=discord.ButtonStyle.secondary,
+        row=1,
+    )
+    async def execution(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            self.project_service.ensure_can_manage(actor)
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(
+            ProjectExecutionModal(self, self.project_service.get_dashboard())
+        )
+
+    @discord.ui.button(
+        label="Progress & Tasks",
+        emoji="📈",
+        style=discord.ButtonStyle.success,
+        row=1,
+    )
+    async def progress_tasks(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            self.project_service.ensure_can_manage(actor)
+            tasks = self.task_service.list_accessible_tasks(actor)
+            view = DashboardTasksView(
+                owner_id=self.owner_id,
+                actor_resolver=self.actor_resolver,
+                task_service=self.task_service,
+                project_service=self.project_service,
+            )
+            view.mode = "all"
+            view.task_select.sync_options(tasks)
+            await interaction.response.edit_message(
+                embed=build_tasks_embed(
+                    tasks,
+                    mode_label="Project Tasks",
+                    stats=self.task_service.task_statistics(actor),
+                ),
+                view=view,
+            )
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage project progress.",
+                ephemeral=True,
+            )
+        except CSEHQError as error:
+            logger.exception("Dashboard progress task panel failed", exc_info=error)
+            await interaction.response.send_message(
+                "Unable to load project tasks right now.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Refresh",
+        emoji="🔄",
+        style=discord.ButtonStyle.primary,
+        row=2,
+    )
+    async def refresh_control(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        await self.render(interaction)
+
+    @discord.ui.button(
+        label="Back to Dashboard",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary,
+        row=2,
+    )
+    async def back_to_dashboard(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        dashboard = self.project_service.get_dashboard()
+        await interaction.response.edit_message(
+            embed=build_dashboard_embed(dashboard),
+            view=DashboardView(
+                owner_id=self.owner_id,
+                actor_resolver=self.actor_resolver,
+                project_service=self.project_service,
+                task_service=self.task_service,
+            ),
+        )
+
+
 class DashboardView(OwnedView):
     def __init__(
         self,
         owner_id: int,
         actor_resolver: Callable[[discord.Interaction], Actor],
         project_service: ProjectService,
+        task_service: TaskService,
     ):
         super().__init__(owner_id)
         self.actor_resolver = actor_resolver
         self.project_service = project_service
+        self.task_service = task_service
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.primary)
-    async def refresh(  # type: ignore[override]
-        self, interaction: discord.Interaction, _: discord.ui.Button
+    @discord.ui.button(
+        label="Refresh",
+        emoji="🔄",
+        style=discord.ButtonStyle.primary,
+    )
+    async def refresh(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
     ) -> None:
         dashboard = self.project_service.get_dashboard()
-        await interaction.response.edit_message(embed=build_dashboard_embed(dashboard), view=self)
+        await interaction.response.edit_message(
+            embed=build_dashboard_embed(dashboard),
+            view=self,
+        )
 
-    @discord.ui.button(label="Manage Dashboard", style=discord.ButtonStyle.secondary)
-    async def manage(  # type: ignore[override]
-        self, interaction: discord.Interaction, _: discord.ui.Button
+    @discord.ui.button(
+        label="Manage Dashboard",
+        emoji="🛠️",
+        style=discord.ButtonStyle.secondary,
+    )
+    async def manage(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
     ) -> None:
         actor = self.actor_resolver(interaction)
         try:
-            self.project_service.update_management(actor)
+            self.project_service.ensure_can_manage(actor)
         except PermissionDeniedError:
             await interaction.response.send_message(
-                "Only leaders or co-leads can manage the dashboard.", ephemeral=True
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
             )
             return
         dashboard = self.project_service.get_dashboard()
-        await interaction.response.send_modal(ProjectManageModal(self.project_service, actor, dashboard))
+        await interaction.response.edit_message(
+            embed=build_dashboard_control_embed(dashboard),
+            view=DashboardControlView(
+                owner_id=self.owner_id,
+                actor_resolver=self.actor_resolver,
+                project_service=self.project_service,
+                task_service=self.task_service,
+                dashboard=dashboard,
+            ),
+        )
 
 
 class TaskSelect(discord.ui.Select):
