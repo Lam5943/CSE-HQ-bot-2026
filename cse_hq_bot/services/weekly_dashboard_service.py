@@ -84,7 +84,8 @@ class WeeklyDashboardService:
             configured_by=actor.user_id,
         )
         settings = self.repo.get_settings()
-        assert settings is not None
+        if settings is None:
+            raise InvalidInputError("Unable to persist weekly dashboard configuration")
         return settings
 
     def get_settings(self) -> dict | None:
