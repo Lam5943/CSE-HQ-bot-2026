@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import replace
 
 from cse_hq_bot.ai.action_models import KnownMember
+from cse_hq_bot.ai.base import AIImage
 from cse_hq_bot.errors import (
     AISessionBusyError,
     AISessionClosedError,
@@ -66,6 +67,7 @@ class AISessionService:
         discord_thread_id: str,
         content: str,
         known_members: list[KnownMember] | None = None,
+        images: list[AIImage] | None = None,
     ) -> GroundedAnswer:
         session = self.repo.get_session(session_id)
         self._validate_session_access(actor, session, discord_thread_id)
@@ -75,14 +77,25 @@ class AISessionService:
             self._busy_sessions.add(session_id)
         try:
             history = self.repo.list_messages(session_id, self.max_history_messages)
-            source_message_id = self.repo.create_message(session_id, "user", content)
+            images = images or []
+            question = content.strip() or (
+                "Analyze the attached image(s)." if images else content
+            )
+            stored_content = self._stored_user_content(content, images)
+            source_message_id = self.repo.create_message(
+                session_id,
+                "user",
+                stored_content,
+            )
             answer_kwargs = {
                 "actor": actor,
-                "question": content,
+                "question": question,
                 "history_messages": history,
             }
             if known_members is not None:
                 answer_kwargs["known_members"] = known_members
+            if images:
+                answer_kwargs["images"] = images
             answer = await self.ai_service.answer_question(**answer_kwargs)
             if answer.action_draft is not None:
                 if self.action_service is None:
@@ -99,6 +112,20 @@ class AISessionService:
         finally:
             async with self._busy_state_lock:
                 self._busy_sessions.discard(session_id)
+
+    @staticmethod
+    def _stored_user_content(content: str, images: list[AIImage]) -> str:
+        text = content.strip()
+        if not images:
+            return text
+        metadata = "\n".join(
+            (
+                f"[Image attachment: {image.filename or 'unnamed'} "
+                f"({image.mime_type})]"
+            )
+            for image in images
+        )
+        return "\n".join(part for part in (text, metadata) if part)
 
     def _validate_session_access(self, actor: Actor, session: dict, discord_thread_id: str) -> None:
         if session["status"] != "ACTIVE":
