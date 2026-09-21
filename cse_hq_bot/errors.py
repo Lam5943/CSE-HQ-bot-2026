@@ -120,3 +120,19 @@ class GitHubWebhookConfigurationError(GitHubWebhookError):
 
 class GitHubWebhookSignatureError(GitHubWebhookError):
     """Raised when a webhook signature is missing or invalid."""
+
+
+class WebResearchError(CSEHQError):
+    """Base error for bounded public-web research."""
+
+
+class WebResearchConfigurationError(WebResearchError):
+    """Raised when web research is enabled without valid configuration."""
+
+
+class WebResearchTimeoutError(WebResearchError):
+    """Raised when the web research provider times out."""
+
+
+class WebResearchProviderError(WebResearchError):
+    """Raised when the web research provider returns an unusable response."""
