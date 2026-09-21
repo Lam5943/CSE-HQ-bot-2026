@@ -42,7 +42,23 @@ class RetrievalPlanner:
             return RetrievalPlan(strategy="github_issues", query=question)
         if any(phrase in normalized for phrase in ("changed in the repo", "recent commits", "repository changes", "repo recently")):
             return RetrievalPlan(strategy="github_recent_commits", query=question)
-        if any(phrase in normalized for phrase in ("what am i working on", "what i'm working on", "my current work", "current work")):
+        if any(
+            phrase in normalized
+            for phrase in (
+                "what am i working on",
+                "what am i currently working on",
+                "what i'm working on",
+                "what i'm currently working on",
+                "my current work",
+                "current work",
+                "what are my tasks",
+                "my active tasks",
+                "mình đang làm gì",
+                "tôi đang làm gì",
+                "task của mình",
+                "task của tôi",
+            )
+        ):
             return RetrievalPlan(strategy="current_work", query=question)
         if "blocker" in normalized or "blocked" in normalized:
             return RetrievalPlan(strategy="blockers", query=question)

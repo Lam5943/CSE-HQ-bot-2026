@@ -10,6 +10,12 @@ class Config:
     database_path: str
     log_level: str
     ai_enable_message_content: bool
+    welcome_enabled: bool
+    welcome_channel_id: str | None
+    web_research_enabled: bool
+    tavily_api_key: str | None
+    web_research_max_results: int
+    web_research_timeout: int
     gemini_api_key: str | None
     ai_model: str
     groq_api_key: str | None
@@ -49,6 +55,20 @@ def load_config() -> Config:
             "AI_ENABLE_MESSAGE_CONTENT", "false"
         ).lower()
         in {"1", "true", "yes", "on"},
+        welcome_enabled=os.getenv("WELCOME_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
+        welcome_channel_id=(os.getenv("WELCOME_CHANNEL_ID") or "").strip() or None,
+        web_research_enabled=os.getenv("WEB_RESEARCH_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
+        tavily_api_key=(os.getenv("TAVILY_API_KEY") or "").strip() or None,
+        web_research_max_results=max(
+            1,
+            min(8, int(os.getenv("WEB_RESEARCH_MAX_RESULTS", "4"))),
+        ),
+        web_research_timeout=max(
+            1,
+            int(os.getenv("WEB_RESEARCH_TIMEOUT", "12")),
+        ),
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         ai_model=os.getenv("AI_MODEL", "gemini-1.5-flash"),
         groq_api_key=os.getenv("GROQ_API_KEY"),

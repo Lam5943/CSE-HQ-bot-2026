@@ -22,6 +22,7 @@ SURFACES = {
     "ai": SurfaceTheme("🤖", "AI Workspace"),
     "github": SurfaceTheme("🐙", "GitHub"),
     "health": SurfaceTheme("🩺", "System Health"),
+    "welcome": SurfaceTheme("👋", "Welcome"),
 }
 
 

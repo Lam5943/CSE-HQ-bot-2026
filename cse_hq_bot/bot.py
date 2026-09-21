@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 
 import discord
@@ -47,6 +48,7 @@ from cse_hq_bot.ui import (
     build_standup_embed,
     build_tasks_embed,
     build_weekly_dashboard_embed,
+    build_welcome_embed,
     split_ai_response,
 )
 from cse_hq_bot.version import application_version
@@ -70,15 +72,30 @@ def build_ai_session_thread_name(display_name: str, session_number: int) -> str:
     return f"{prefix}{clean_name}{suffix}"
 
 
+def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
+    pattern = re.compile(rf"<@!?{re.escape(str(bot_user_id))}>")
+    return pattern.sub("", str(content or "")).strip()
+
+
 class CSEHQBot(commands.Bot):
-    def __init__(self, container: ServiceContainer, *, enable_message_content: bool = False):
+    def __init__(
+        self,
+        container: ServiceContainer,
+        *,
+        enable_message_content: bool = False,
+        welcome_enabled: bool = False,
+        welcome_channel_id: str | None = None,
+    ):
         intents = discord.Intents.default()
         intents.message_content = enable_message_content
+        intents.members = welcome_enabled
         intents.guild_messages = True
         intents.guilds = True
         super().__init__(command_prefix="!", intents=intents)
         self.container = container
         self.enable_message_content = enable_message_content
+        self.welcome_enabled = welcome_enabled
+        self.welcome_channel_id = welcome_channel_id
         self._message_content_guidance_sent: set[tuple[str, str]] = set()
         self._weekly_dashboard_task: asyncio.Task[None] | None = None
         self._ai_session_creation_locks: dict[str, asyncio.Lock] = {}
@@ -598,8 +615,13 @@ class CSEHQBot(commands.Bot):
     async def on_message(self, message: discord.Message) -> None:  # pragma: no cover - exercised via unit helpers
         if message.author.bot:
             return
-        session = self.container.ai_session_service.get_session_by_thread_id(str(message.channel.id))
+        session = self.container.ai_session_service.get_session_by_thread_id(
+            str(message.channel.id)
+        )
         if not session:
+            if self._is_direct_bot_mention(message):
+                await self._handle_public_mention(message)
+                return
             await self.process_commands(message)
             return
         if not self.enable_message_content:
@@ -683,6 +705,163 @@ class CSEHQBot(commands.Bot):
                 },
             )
             await message.channel.send(self._safe_ai_error_message(error))
+
+    def _is_direct_bot_mention(self, message: discord.Message) -> bool:
+        bot_user = self.user
+        if bot_user is None:
+            return False
+        return any(
+            int(getattr(user, "id", 0)) == int(bot_user.id)
+            for user in (getattr(message, "mentions", []) or [])
+        )
+
+    async def _handle_public_mention(self, message: discord.Message) -> None:
+        bot_user = self.user
+        if bot_user is None:
+            return
+        attachments = list(getattr(message, "attachments", []) or [])
+        question = strip_bot_mention(message.content, bot_user.id)
+        if not question and not attachments:
+            await message.reply(
+                "Có mình đây 👀 Mention mình kèm câu hỏi là được.",
+                mention_author=False,
+            )
+            return
+
+        actor = resolve_actor_from_user(message.author)
+        known_members = known_members_from_message(message)
+        started = time.monotonic()
+        try:
+            images = await extract_ai_images(attachments)
+            question = question or "Analyze the attached image(s)."
+            kwargs = {
+                "actor": actor,
+                "question": question,
+                "history_messages": [],
+                "known_members": known_members,
+                "allow_actions": False,
+            }
+            if images:
+                kwargs["images"] = images
+
+            typing = getattr(message.channel, "typing", None)
+            if callable(typing):
+                async with typing():
+                    answer = await self.container.ai_service.answer_question(**kwargs)
+            else:
+                answer = await self.container.ai_service.answer_question(**kwargs)
+
+            chunks = split_ai_response(answer.content)
+            if chunks:
+                await message.reply(chunks[0], mention_author=False)
+                for chunk in chunks[1:]:
+                    await message.channel.send(chunk)
+            logger.info(
+                "Public mention response completed",
+                extra={
+                    "component": "ai_mentions",
+                    "operation": "reply",
+                    "actor_id": actor.user_id,
+                    "retrieval_strategy": answer.retrieval_strategy,
+                    "source_ids": answer.source_refs,
+                    "invalid_source_ids": answer.invalid_source_refs,
+                    "image_count": len(images),
+                    "latency_seconds": round(time.monotonic() - started, 3),
+                    "outcome": "success",
+                },
+            )
+        except CSEHQError as error:
+            logger.exception(
+                "Public mention response failed",
+                exc_info=error,
+                extra={
+                    "component": "ai_mentions",
+                    "operation": "reply",
+                    "actor_id": actor.user_id,
+                    "latency_seconds": round(time.monotonic() - started, 3),
+                    "outcome": error.__class__.__name__,
+                },
+            )
+            await message.reply(
+                self._safe_ai_error_message(error),
+                mention_author=False,
+            )
+
+    async def on_member_join(self, member: discord.Member) -> None:
+        if not self.welcome_enabled or member.bot:
+            return
+        channel = self._resolve_welcome_channel(member)
+        if channel is None:
+            logger.warning(
+                "Welcome message skipped because no writable text channel was found",
+                extra={
+                    "component": "welcome",
+                    "operation": "member_join",
+                    "guild_id": str(member.guild.id),
+                    "result": "no_channel",
+                },
+            )
+            return
+        try:
+            await channel.send(
+                content=member.mention,
+                embed=build_welcome_embed(
+                    member_mention=member.mention,
+                    display_name=member.display_name,
+                    guild_name=member.guild.name,
+                ),
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False,
+                ),
+            )
+        except discord.HTTPException as error:
+            logger.exception(
+                "Welcome message failed",
+                exc_info=error,
+                extra={
+                    "component": "welcome",
+                    "operation": "member_join",
+                    "guild_id": str(member.guild.id),
+                    "result": "failed",
+                },
+            )
+
+    def _resolve_welcome_channel(
+        self,
+        member: discord.Member,
+    ) -> discord.TextChannel | None:
+        guild = member.guild
+        candidates: list[discord.TextChannel] = []
+        if self.welcome_channel_id:
+            try:
+                configured_id = int(self.welcome_channel_id)
+            except (TypeError, ValueError):
+                configured_id = None
+            if configured_id is not None:
+                configured = guild.get_channel(configured_id)
+                if isinstance(configured, discord.TextChannel):
+                    candidates.append(configured)
+        if guild.system_channel is not None and guild.system_channel not in candidates:
+            candidates.append(guild.system_channel)
+        for channel in guild.text_channels:
+            if channel not in candidates:
+                candidates.append(channel)
+
+        bot_member = guild.me
+        if bot_member is None:
+            return None
+        for channel in candidates:
+            bot_permissions = channel.permissions_for(bot_member)
+            member_permissions = channel.permissions_for(member)
+            if (
+                bot_permissions.view_channel
+                and bot_permissions.send_messages
+                and member_permissions.view_channel
+            ):
+                return channel
+        return None
 
     def _build_ai_home_view(self, owner_id: int) -> discord.ui.View:
         view = discord.ui.View(timeout=300)
@@ -949,7 +1128,12 @@ def main() -> None:  # pragma: no cover
     if not config.discord_token:
         raise RuntimeError("DISCORD_TOKEN is required to run the bot")
     container = ServiceContainer(config)
-    bot = CSEHQBot(container, enable_message_content=config.ai_enable_message_content)
+    bot = CSEHQBot(
+        container,
+        enable_message_content=config.ai_enable_message_content,
+        welcome_enabled=config.welcome_enabled,
+        welcome_channel_id=config.welcome_channel_id,
+    )
     bot.run(config.discord_token)
 
 

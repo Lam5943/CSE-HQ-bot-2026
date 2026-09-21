@@ -55,6 +55,10 @@ def make_config(**overrides):
         "groq_model": "private-groq-model",
         "ai_fallback_enabled": True,
         "ai_fallback_provider": "openai",
+        "web_research_enabled": True,
+        "tavily_api_key": "tavily-super-secret",
+        "welcome_enabled": True,
+        "welcome_channel_id": "444444",
         "openai_api_key": "openai-super-secret",
         "openai_model": "private-fallback-model",
         "github_token": "github-super-secret",
@@ -135,6 +139,8 @@ def test_health_all_components_healthy(tmp_path: Path):
         if item.key != "groq"
     )
     assert report.version == "1.2.3"
+    assert component(report, "web_research").state == HealthState.HEALTHY
+    assert component(report, "welcome").state == HealthState.HEALTHY
     assert "last sync" in component(report, "github").detail
     assert "latest delivery processed" in component(report, "webhook").detail
 
@@ -145,6 +151,8 @@ def test_optional_components_disabled_do_not_degrade_health(tmp_path: Path):
         config=make_config(
             ai_provider="fake",
             ai_fallback_enabled=False,
+            web_research_enabled=False,
+            welcome_enabled=False,
             github_webhook_enabled=False,
         ),
         github_snapshot={"enabled": False},
@@ -159,6 +167,8 @@ def test_optional_components_disabled_do_not_degrade_health(tmp_path: Path):
     assert component(report, "groq").state == HealthState.DISABLED
     assert component(report, "gemini").state == HealthState.DISABLED
     assert component(report, "openai_fallback").state == HealthState.DISABLED
+    assert component(report, "web_research").state == HealthState.DISABLED
+    assert component(report, "welcome").state == HealthState.DISABLED
     assert component(report, "github").state == HealthState.DISABLED
     assert component(report, "webhook").state == HealthState.DISABLED
 
@@ -215,7 +225,7 @@ def test_database_failure_isolated_and_marks_overall_failed(tmp_path: Path):
     assert component(report, "database").state == HealthState.FAILED
     assert component(report, "groq").state == HealthState.DISABLED
     assert component(report, "gemini").state == HealthState.HEALTHY
-    assert len(report.components) == 10
+    assert len(report.components) == 12
 
 
 def test_github_failure_isolated_and_reported(tmp_path: Path):
@@ -294,6 +304,7 @@ def test_health_report_and_embed_do_not_leak_configuration(tmp_path: Path):
         "openai-super-secret",
         "github-super-secret",
         "webhook-super-secret",
+        "tavily-super-secret",
         "private-model-name",
         "private-groq-model",
         "private-fallback-model",
@@ -301,6 +312,7 @@ def test_health_report_and_embed_do_not_leak_configuration(tmp_path: Path):
         "111111",
         "222222",
         "333333",
+        "444444",
     ):
         assert secret not in rendered
 

@@ -10,6 +10,7 @@ from cse_hq_bot.ai.action_models import (
 from cse_hq_bot.ai.base import AIImage, AIProvider, RetrievedContextRecord
 from cse_hq_bot.errors import (
     AIActionError,
+    AIProviderError,
     InvalidTransitionError,
     NotFoundError,
     PermissionDeniedError,
@@ -29,9 +30,13 @@ from cse_hq_bot.services.ai_action_interpreter import (
 from cse_hq_bot.services.project_context_service import ProjectContextService
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlan, RetrievalPlanner
+from cse_hq_bot.services.web_research_service import (
+    TavilyWebResearchService,
+    WebResearchIntentDetector,
+)
 
 SOURCE_ID_PATTERN = re.compile(
-    r"\b(?:(?:TASK|BUG|MEETING|DEC|STANDUP)-\d+|GH-(?:ISSUE|PR)-\d+|GH-COMMIT-[0-9a-fA-F]{7,40})\b"
+    r"\b(?:(?:TASK|BUG|MEETING|DEC|STANDUP|WEB)-\d+|GH-(?:ISSUE|PR)-\d+|GH-COMMIT-[0-9a-fA-F]{7,40})\b"
 )
 @dataclass(frozen=True)
 class GroundedAnswer:
@@ -55,6 +60,8 @@ class AIService:
         request_timeout: int,
         action_interpreter: AIActionInterpreter | None = None,
         action_intent_detector: ActionIntentDetector | None = None,
+        web_research_service: TavilyWebResearchService | None = None,
+        web_research_intent_detector: WebResearchIntentDetector | None = None,
     ):
         self.provider = provider
         self.project_context_service = project_context_service
@@ -64,6 +71,10 @@ class AIService:
         self.request_timeout = max(1, int(request_timeout))
         self.action_interpreter = action_interpreter
         self.action_intent_detector = action_intent_detector or ActionIntentDetector()
+        self.web_research_service = web_research_service
+        self.web_research_intent_detector = (
+            web_research_intent_detector or WebResearchIntentDetector()
+        )
 
     async def answer_question(
         self,
@@ -73,9 +84,21 @@ class AIService:
         history_messages: list[dict],
         known_members: list[KnownMember] | None = None,
         images: list[AIImage] | None = None,
+        allow_actions: bool = True,
     ) -> GroundedAnswer:
         images = images or []
         intent = self.action_intent_detector.detect(question)
+        if intent.kind != ActionIntentKind.NONE and not allow_actions:
+            return GroundedAnswer(
+                content=(
+                    "Public mentions are read-only. I can explain or research this, "
+                    "but project changes need a private /ai session so CSE-HQ can show "
+                    "a Confirm/Cancel proposal first."
+                ),
+                source_refs=[],
+                invalid_source_refs=[],
+                retrieval_strategy="public_mutation_rejected",
+            )
         if intent.kind != ActionIntentKind.NONE and self.action_interpreter is None:
             return GroundedAnswer(
                 content=(
@@ -139,6 +162,48 @@ class AIService:
             )
         plan = self.retrieval_planner.plan(question)
         context_records = self._retrieve_records(actor, plan)
+        web_intent = self.web_research_intent_detector.detect(question)
+        should_research_web = web_intent.explicit or (
+            web_intent.required
+            and plan.strategy in {"search", "fallback_search"}
+            and not context_records
+        )
+        web_records: list[RetrievedContextRecord] = []
+        if should_research_web:
+            if self.web_research_service is None or not self.web_research_service.configured:
+                return GroundedAnswer(
+                    content=(
+                        "I need live web research for that, but the read-only web search "
+                        "integration is not configured right now."
+                    ),
+                    source_refs=[],
+                    invalid_source_refs=[],
+                    retrieval_strategy="web_research_unavailable",
+                )
+            try:
+                web_records = await self.web_research_service.search(question)
+            except AIProviderError:
+                return GroundedAnswer(
+                    content=(
+                        "I couldn't verify that on the live web right now, so I won't "
+                        "pretend the answer is current. Try again later."
+                    ),
+                    source_refs=[],
+                    invalid_source_refs=[],
+                    retrieval_strategy="web_research_failed",
+                )
+            if not web_records:
+                return GroundedAnswer(
+                    content=(
+                        "I searched the live web but found no usable sources for that "
+                        "request, so I can't verify a current answer."
+                    ),
+                    source_refs=[],
+                    invalid_source_refs=[],
+                    retrieval_strategy="web_research_empty",
+                )
+            context_records = [*context_records, *web_records]
+
         prompt = self.prompt_builder.build(
             history_messages=history_messages,
             user_question=question,
@@ -155,12 +220,30 @@ class AIService:
             provider_kwargs["images"] = images
         response = await self.provider.generate(**provider_kwargs)
         valid, invalid = self._validate_source_refs(response.text, context_records)
+        content = response.text
+        if web_records:
+            sources = "\n".join(
+                (
+                    f"- [{record.source_id}] "
+                    f"{self._safe_web_source_title(record.title)} — <{record.url}>"
+                )
+                for record in web_records
+                if record.url
+            )
+            if sources:
+                content = f"{content}\n\n**Web sources consulted**\n{sources}"
+        strategy = f"{plan.strategy}+web" if web_records else plan.strategy
         return GroundedAnswer(
-            content=response.text,
+            content=content,
             source_refs=valid,
             invalid_source_refs=invalid,
-            retrieval_strategy=plan.strategy,
+            retrieval_strategy=strategy,
         )
+
+    @staticmethod
+    def _safe_web_source_title(value: object) -> str:
+        text = " ".join(str(value or "Web result").split())
+        return text.replace("@", "@\u200b")[:180] or "Web result"
 
     def _retrieve_records(self, actor: Actor, plan: RetrievalPlan) -> list[RetrievedContextRecord]:
         strategy = plan.strategy
