@@ -77,6 +77,14 @@ def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
     return pattern.sub("", str(content or "")).strip()
 
 
+def _is_supported_image_attachment(attachment: object) -> bool:
+    content_type = str(getattr(attachment, "content_type", "") or "").split(";", 1)[0].lower()
+    filename = str(getattr(attachment, "filename", "") or "").lower()
+    return content_type in {"image/png", "image/jpeg", "image/webp"} or filename.endswith(
+        (".png", ".jpg", ".jpeg", ".webp")
+    )
+
+
 class CSEHQBot(commands.Bot):
     def __init__(
         self,
@@ -785,7 +793,9 @@ class CSEHQBot(commands.Bot):
                 content = strip_bot_mention(content, bot_id)
                 role = "user"
                 inherited_attachments.extend(
-                    list(getattr(current, "attachments", []) or [])
+                    attachment
+                    for attachment in (getattr(current, "attachments", []) or [])
+                    if _is_supported_image_attachment(attachment)
                 )
             else:
                 role = "assistant"
@@ -830,8 +840,16 @@ class CSEHQBot(commands.Bot):
         known_members = known_members_from_message(message)
         started = time.monotonic()
         try:
-            image_attachments = [*attachments, *inherited_attachments]
-            images = await extract_ai_images(image_attachments) if image_attachments else []
+            inherited_slots = max(0, 3 - len(attachments))
+            image_attachments = [
+                *attachments,
+                *inherited_attachments[:inherited_slots],
+            ]
+            images = (
+                await extract_ai_images(image_attachments)
+                if image_attachments
+                else []
+            )
             question = question or "Analyze the attached image(s)."
             kwargs = {
                 "actor": actor,
