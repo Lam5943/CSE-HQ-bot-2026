@@ -836,9 +836,14 @@ class CSEHQBot(commands.Bot):
     ) -> discord.TextChannel | None:
         candidates: list[discord.TextChannel] = []
         if self.welcome_channel_id:
-            configured = guild.get_channel(int(self.welcome_channel_id))
-            if isinstance(configured, discord.TextChannel):
-                candidates.append(configured)
+            try:
+                configured_id = int(self.welcome_channel_id)
+            except (TypeError, ValueError):
+                configured_id = None
+            if configured_id is not None:
+                configured = guild.get_channel(configured_id)
+                if isinstance(configured, discord.TextChannel):
+                    candidates.append(configured)
         if guild.system_channel is not None and guild.system_channel not in candidates:
             candidates.append(guild.system_channel)
         for channel in guild.text_channels:
