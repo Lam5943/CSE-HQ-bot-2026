@@ -121,6 +121,7 @@ def test_groq_provider_uses_openai_compatible_responses_api(monkeypatch):
     assert provider.client.options == [{"timeout": 9, "max_retries": 0}]
     assert responses.calls[0]["model"] == "qwen/qwen3.8-27b"
     assert responses.calls[0]["store"] is False
+    assert responses.calls[0]["max_output_tokens"] == 700
     assert "<SYSTEM_INSTRUCTIONS>\nread only" in responses.calls[0]["input"]
 
 
@@ -245,3 +246,45 @@ def test_groq_rate_limit_preserves_retry_after_header(monkeypatch):
         )
 
     assert exc_info.value.retry_after_seconds == 2.5
+
+
+def test_groq_output_quota_rejection_is_nonretryable(monkeypatch):
+    provider, _, _ = _provider(
+        monkeypatch,
+        error=RateLimitError(
+            "output tokens per minute (OTPM): Limit 1000, Requested 1663. "
+            "Please reduce max_tokens (or the request's expected output)."
+        ),
+    )
+
+    with pytest.raises(AIRateLimitError) as exc_info:
+        asyncio.run(provider.generate(
+            system_instruction="sys",
+            messages=[AIMessage(role="user", content="hi")],
+            context_records=[],
+            timeout_seconds=1,
+        ))
+
+    assert exc_info.value.retryable is False
+    assert exc_info.value.quota_metric == "OTPM"
+    assert exc_info.value.quota_limit == 1000
+    assert exc_info.value.quota_requested == 1663
+
+
+def test_groq_temporary_output_quota_rejection_can_retry(monkeypatch):
+    provider, _, _ = _provider(
+        monkeypatch,
+        error=RateLimitError(
+            "output tokens per minute (OTPM): Limit 1000, Requested 700"
+        ),
+    )
+
+    with pytest.raises(AIRateLimitError) as exc_info:
+        asyncio.run(provider.generate(
+            system_instruction="sys",
+            messages=[AIMessage(role="user", content="hi")],
+            context_records=[],
+            timeout_seconds=1,
+        ))
+
+    assert exc_info.value.retryable is True
