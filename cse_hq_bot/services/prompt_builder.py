@@ -36,7 +36,7 @@ class PromptBuilder:
         )
         return PromptPayload(
             system_instruction=self._system_instruction(
-                bool(context_records),
+                any(record.source_type != "web" for record in context_records),
                 has_web_records=any(
                     record.source_type == "web" for record in context_records
                 ),
