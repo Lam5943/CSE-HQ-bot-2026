@@ -8,8 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from cse_hq_bot.ai.action_models import KnownMember
-from cse_hq_bot.ai.personality import PersonalityPolicy
 from cse_hq_bot.ai.discord_image_input import extract_ai_images
+from cse_hq_bot.ai.personality import PersonalityPolicy
 from cse_hq_bot.config import load_config
 from cse_hq_bot.discord_forum_gateway import DiscordForumGateway
 from cse_hq_bot.errors import (
