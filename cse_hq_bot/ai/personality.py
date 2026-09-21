@@ -92,12 +92,12 @@ class PersonalityPolicy:
         else:
             register = "neutral"
 
-        if re.search(r"\bbro(?:ther)?\b|\bbruh\b", style_text, re.IGNORECASE):
+        if register == "formal":
+            address_hint = "neutral-formal"
+        elif re.search(r"\bbro(?:ther)?\b|\bbruh\b", style_text, re.IGNORECASE):
             address_hint = "bro"
         elif re.search(r"\bmình\b", style_text, re.IGNORECASE):
             address_hint = "mình-bạn"
-        elif register == "formal":
-            address_hint = "neutral-formal"
         else:
             address_hint = "neutral"
 
@@ -106,7 +106,9 @@ class PersonalityPolicy:
             or bool(_SHORT_FOLLOWUP_PATTERN.search(current))
         )
         structured = bool(_STRUCTURED_REQUEST_PATTERN.search(current))
-        emoji_ok = bool(re.search(r"[😭💀😂🤣😅🥲]|:sob:|=\)+", style_text))
+        emoji_ok = register != "formal" and bool(
+            re.search(r"[😭💀😂🤣😅🥲]|:sob:|=\)+", style_text)
+        )
 
         return ConversationStyle(
             register=register,
@@ -180,7 +182,8 @@ class PersonalityPolicy:
             if style.structured
             else (
                 "This is a short or contextual follow-up. Answer the follow-up immediately, "
-                "usually in a few compact paragraphs or a short bullet list."
+                "usually in a few compact paragraphs or a short bullet list. Do not restate "
+                "the full previous analysis; expand only if the user asks."
                 if style.compact
                 else (
                     "Default to conversational prose with light bullets when useful. Avoid turning "
