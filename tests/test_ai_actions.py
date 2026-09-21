@@ -109,7 +109,11 @@ def _create_proposal(stack, draft, actor=None):
         ("Is TASK-014 complete?", ActionIntentKind.NONE, None),
         ("Can TASK-014 be reopened?", ActionIntentKind.NONE, None),
         ("Merge GH-PR-9", ActionIntentKind.UNSUPPORTED, None),
-        ("Create a meeting tomorrow", ActionIntentKind.UNSUPPORTED, None),
+        (
+            "Create a meeting tomorrow",
+            ActionIntentKind.SUPPORTED,
+            "meeting_create",
+        ),
         (
             "Complete TASK-014 and TASK-015",
             ActionIntentKind.MULTI_ACTION,

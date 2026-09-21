@@ -99,6 +99,9 @@ class ServiceContainer:
         self.ai_action_registry = AIActionRegistry(
             self.task_service,
             self.bug_service,
+            self.meeting_service,
+            self.decision_service,
+            self.standup_service,
         )
         self.ai_action_service = AIActionService(
             ai_action_repo,
@@ -111,6 +114,9 @@ class ServiceContainer:
             self.ai_action_registry,
             self.task_service,
             self.bug_service,
+            self.meeting_service,
+            self.decision_service,
+            self.standup_service,
             timeout_seconds=config.ai_request_timeout,
             max_candidates=config.ai_max_context_items,
         )

@@ -94,10 +94,24 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 def build_ai_home_embed() -> discord.Embed:
     embed = discord.Embed(title="CSE-HQ AI Assistant", color=discord.Color.blurple())
     embed.description = (
-        "Private, project-grounded help plus explicitly confirmed Task and Bug actions."
+        "Private, project-grounded help plus explicitly confirmed internal actions."
     )
-    embed.add_field(name="Capabilities", value="Q&A plus bounded Task and Bug action proposals", inline=False)
-    embed.add_field(name="Boundaries", value="Read-only by default. No mutation occurs without your explicit confirmation; GitHub and all other domains remain read-only.", inline=False)
+    embed.add_field(
+        name="Capabilities",
+        value=(
+            "Q&A plus bounded Task, Bug, Meeting, Decision, and own Standup "
+            "action proposals"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Boundaries",
+        value=(
+            "Read-only by default. No mutation occurs without your explicit "
+            "confirmation; GitHub remains read-only."
+        ),
+        inline=False,
+    )
     embed.add_field(name="Actions", value="New Session • My Sessions", inline=False)
     return embed
 
@@ -117,10 +131,22 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
     embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
     embed.description = (
-        "Ask project questions or propose one supported Task/Bug action. The assistant is private, permission-aware, and project-grounded."
+        "Ask project questions or propose one supported internal action. The "
+        "assistant is private, permission-aware, and project-grounded."
     )
-    embed.add_field(name="Source of truth", value="Current CSE-HQ project records always win over prior AI replies.", inline=False)
-    embed.add_field(name="Boundaries", value="Actions require Confirm, expire automatically, and are revalidated before execution. GitHub remains read-only.", inline=False)
+    embed.add_field(
+        name="Source of truth",
+        value="Current CSE-HQ project records always win over prior AI replies.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Boundaries",
+        value=(
+            "Actions require Confirm, expire automatically, and are revalidated "
+            "before execution. GitHub remains read-only."
+        ),
+        inline=False,
+    )
     return embed
 
 
