@@ -51,16 +51,31 @@ class WeeklyDashboardService:
             raise InvalidInputError(
                 "Weekday must be Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, or Sunday"
             )
+        clean_time = publish_time.strip()
         try:
-            parsed_time = datetime.strptime(publish_time.strip(), "%H:%M")
+            hour_text, minute_text = clean_time.split(":", 1)
+            if (
+                len(clean_time) != 5
+                or len(hour_text) != 2
+                or len(minute_text) != 2
+                or not hour_text.isdigit()
+                or not minute_text.isdigit()
+            ):
+                raise ValueError
+            hour = int(hour_text)
+            minute = int(minute_text)
+            if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+                raise ValueError
         except ValueError as exc:
-            raise InvalidInputError("Publish time must use 24-hour HH:MM format") from exc
+            raise InvalidInputError(
+                "Publish time must use 24-hour HH:MM format"
+            ) from exc
         try:
             ZoneInfo(timezone)
         except Exception as exc:
             raise InvalidInputError("Dashboard timezone is invalid") from exc
 
-        normalized_time = parsed_time.strftime("%H:%M")
+        normalized_time = f"{hour:02d}:{minute:02d}"
         self.repo.set_settings(
             channel_id=clean_channel_id,
             weekday=WEEKDAYS[clean_weekday],
