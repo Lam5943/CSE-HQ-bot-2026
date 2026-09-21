@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Coroutine
+from functools import partial
 from typing import Any
 
 from cse_hq_bot.errors import ForumPublishingError, InvalidInputError
@@ -79,7 +80,11 @@ class ForumPublishingService:
     def publish_bug_nowait(self, event_type: str, bug: dict) -> None:
         if self.repo.get_forum("bug") is None:
             return
-        self._schedule(self.publish_bug(event_type, bug))
+        self._schedule(
+            self.publish_bug(event_type, bug),
+            entity_type="bug",
+            entity_id=str(bug.get("id") or "unknown"),
+        )
 
     async def publish_bug(
         self, event_type: str, bug: dict
@@ -191,23 +196,61 @@ class ForumPublishingService:
             "REPLIED", entity_type, entity_id, str(publication["thread_id"])
         )
 
-    def _schedule(self, operation: Coroutine[Any, Any, Any]) -> None:
+    def _schedule(
+        self,
+        operation: Coroutine[Any, Any, Any],
+        *,
+        entity_type: str,
+        entity_id: str,
+    ) -> None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             operation.close()
-            logger.warning("Forum publication skipped because no event loop is running")
+            logger.warning(
+                "Forum publication skipped because no event loop is running",
+                extra={
+                    "component": "forum_publishing",
+                    "operation": "publish",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "result": "skipped",
+                    "error_category": "EventLoopUnavailable",
+                },
+            )
             return
         task = loop.create_task(operation)
         self._background_tasks.add(task)
-        task.add_done_callback(self._publication_finished)
+        task.add_done_callback(
+            partial(
+                self._publication_finished,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+        )
 
-    def _publication_finished(self, task: asyncio.Task[Any]) -> None:
+    def _publication_finished(
+        self,
+        task: asyncio.Task[Any],
+        *,
+        entity_type: str,
+        entity_id: str,
+    ) -> None:
         self._background_tasks.discard(task)
         try:
             task.result()
-        except Exception:
-            logger.exception("Forum publication failed after domain mutation")
+        except Exception as exc:
+            logger.exception(
+                "Forum publication failed after domain mutation",
+                extra={
+                    "component": "forum_publishing",
+                    "operation": "publish",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "result": "failed",
+                    "error_category": exc.__class__.__name__,
+                },
+            )
 
     def _require_gateway(self) -> ForumGateway:
         if self.gateway is None:

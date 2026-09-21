@@ -40,6 +40,7 @@ from cse_hq_bot.ui import (
     build_dashboard_embed,
     build_decisions_embed,
     build_github_overview_embed,
+    build_health_embed,
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
@@ -256,6 +257,36 @@ class CSEHQBot(commands.Bot):
             except CSEHQError as error:
                 await interaction.response.send_message(str(error), ephemeral=True)
 
+        @app_commands.command(
+            name="health",
+            description="Show bounded operational diagnostics for maintainers",
+        )
+        async def health(interaction: discord.Interaction) -> None:
+            actor = resolve_actor_from_interaction(interaction)
+            try:
+                report = self.container.health_service.get_report(
+                    actor, discord_ready=self.is_ready()
+                )
+                await interaction.response.send_message(
+                    embed=build_health_embed(report), ephemeral=True
+                )
+            except CSEHQError as error:
+                await interaction.response.send_message(str(error), ephemeral=True)
+            except Exception as error:  # pragma: no cover - defensive command boundary
+                logger.exception(
+                    "Health command failed",
+                    exc_info=error,
+                    extra={
+                        "component": "health",
+                        "operation": "discord_command",
+                        "result": "failed",
+                        "error_category": error.__class__.__name__,
+                    },
+                )
+                await interaction.response.send_message(
+                    "Unable to load health diagnostics right now.", ephemeral=True
+                )
+
         setup = app_commands.Group(
             name="setup", description="Configure CSE-HQ integrations"
         )
@@ -313,6 +344,7 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(standup)
         self.tree.add_command(ai)
         self.tree.add_command(github)
+        self.tree.add_command(health)
         self.tree.add_command(setup)
         webhook_server = getattr(self.container, "github_webhook_server", None)
         if webhook_server is not None:

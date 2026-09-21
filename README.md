@@ -240,6 +240,30 @@ sudo cp /var/lib/cse-hq-bot/cse_hq.db /var/lib/cse-hq-bot/cse_hq.db.backup
 sudo chown csebot:csebot /var/lib/cse-hq-bot/cse_hq.db.backup
 ```
 
+## Runtime Architecture
+
+```text
+Discord commands and private AI threads
+                  ↓
+              CSEHQBot
+                  ↓
+           ServiceContainer
+        ┌─────────┼──────────┐
+        ↓         ↓          ↓
+ Domain services  AI stack   GitHub / Forum adapters
+        └─────────┼──────────┘
+                  ↓
+         SQLite repositories
+
+/health → HealthService → bounded local snapshots only
+```
+
+Domain services and SQLite remain authoritative for project records. External
+providers are isolated behind their existing adapters. `HealthService` reads
+database connectivity, persisted sync/delivery state, in-process listener and AI
+runtime status, and Forum configuration without bypassing domain permissions or
+contacting external services.
+
 ## Bot Usage
 
 The current MVP exposes these Discord application commands:
@@ -331,6 +355,30 @@ Opens a private, read-only development context panel backed by the local GitHub 
 - Explicit task/bug links to cached GitHub issues or pull requests
 
 GitHub v1 never creates, edits, closes, merges, comments, reviews, triggers workflows, or pushes code. GitHub remains authoritative; SQLite only retains a bounded cache so existing data remains available after a failed refresh.
+
+### `/health`
+
+Shows a private, bounded operational snapshot for Leaders and Co-Leads. It
+reports the Discord connection, SQLite connectivity, Gemini and OpenAI fallback
+configuration/runtime state, GitHub cache sync, webhook listener and latest
+delivery, and the three Forum mappings. It also includes the installed
+application version.
+
+`/health` uses local process and SQLite state only. It does not make live calls
+to Discord, Gemini, OpenAI, or GitHub, and it never displays tokens, secrets,
+model names, database paths, webhook payloads, repository identifiers, or Discord
+channel IDs.
+
+Health states mean:
+
+- `HEALTHY`: the component is configured and its latest bounded check succeeded.
+- `DEGRADED`: the component is usable with reduced assurance, stale state, or a
+  working fallback after a primary failure.
+- `DISABLED`: an optional integration is intentionally disabled or not
+  configured; this does not make the bot unhealthy.
+- `FAILED`: the component check or configured integration failed. Core Discord
+  or database failure makes overall health `FAILED`; an isolated optional
+  integration failure makes it `DEGRADED`.
 
 ### `/setup forums`
 
@@ -491,6 +539,28 @@ payloads and secrets are never posted or logged. Put the listener behind HTTPS o
 a trusted TLS-terminating reverse proxy in production. This integration performs
 no GitHub writes and uses no AI for event classification.
 
+## Operational Logging and Troubleshooting
+
+Operational log records use consistent bounded fields where applicable, including
+`component`, `operation`, `entity_id`, `session_id`, `delivery_id`, `result`, and
+`error_category`. AI provider/fallback outcomes, GitHub sync failures, webhook
+processing, Forum publication failures, and diagnostics failures are recorded
+without logging prompts, private conversation content, credentials, raw webhook
+payloads, or authorization headers.
+
+For first-line troubleshooting:
+
+1. Run `/health` as a Leader or Co-Lead and identify the first degraded or failed
+   component.
+2. Check service logs with `journalctl -u cse-hq-bot.service -f` and filter on the
+   reported component and operation fields.
+3. For GitHub, compare the last sync and latest webhook delivery states; cache
+   sync and inbound webhooks are independent.
+4. For AI degradation, verify that the primary is configured and whether the
+   fallback is configured; `/health` does not test providers by sending a prompt.
+5. For Forum publishing, rerun `/setup forums` with `test_publish` after fixing
+   Discord channel permissions.
+
 ## Tests
 
 Install the development dependencies, then run the same validation gates used by
@@ -518,7 +588,7 @@ The separate `CodeQL` workflow analyzes Python on pull requests, pushes to
 status must be taken from the GitHub check; local validation is not reported as a
 CodeQL pass.
 
-Latest local repository validation (2026-09-21): 232 offline tests passed. Ruff,
+Latest local repository validation (2026-09-21): 243 offline tests passed. Ruff,
 Python compilation, Bandit, `pip check`, `pip-audit`, and tracked-file plus
 Git-history secret-signature scanning also passed. The previous 18 Ruff findings
 were fixed. The five B608 findings were removed by replacing dynamic SQL with

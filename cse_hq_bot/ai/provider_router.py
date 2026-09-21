@@ -44,6 +44,10 @@ class AIProviderRouter:
         self.fallback_name = fallback_name
         self.fallback_configuration_error = fallback_configuration_error
         self.metrics: Counter[str] = Counter()
+        self.last_primary_result = "unknown"
+        self.last_primary_error_category: str | None = None
+        self.last_fallback_result = "unknown"
+        self.last_fallback_error_category: str | None = None
 
     async def generate(
         self,
@@ -61,27 +65,41 @@ class AIProviderRouter:
                 context_records=context_records,
                 timeout_seconds=timeout_seconds,
             )
-        except FAILOVER_ELIGIBLE_ERRORS as primary_error:
+        except AIProviderError as primary_error:
             self._record_primary_failure(primary_error)
+            if not isinstance(primary_error, FAILOVER_ELIGIBLE_ERRORS):
+                raise
             if not self.fallback_enabled:
                 raise
             self.metrics["fallback_attempt"] += 1
             logger.warning(
-                "AI fallback attempt primary=%s fallback=%s failure=%s latency_ms=%d",
-                self.primary_name,
-                self.fallback_name,
-                primary_error.__class__.__name__,
-                self._elapsed_ms(started),
+                "AI fallback attempt",
+                extra={
+                    "component": "ai_router",
+                    "operation": "fallback",
+                    "result": "attempt",
+                    "primary_provider": self.primary_name,
+                    "fallback_provider": self.fallback_name,
+                    "error_category": primary_error.__class__.__name__,
+                    "latency_ms": self._elapsed_ms(started),
+                },
             )
             if self.fallback is None:
                 self.metrics["fallback_failure"] += 1
                 error = self.fallback_configuration_error or AIConfigurationError(
                     "AI fallback provider is not configured"
                 )
+                self.last_fallback_result = "failed"
+                self.last_fallback_error_category = error.__class__.__name__
                 logger.error(
-                    "AI fallback unavailable provider=%s failure=%s",
-                    self.fallback_name,
-                    error.__class__.__name__,
+                    "AI fallback unavailable",
+                    extra={
+                        "component": "ai_router",
+                        "operation": "fallback",
+                        "result": "failed",
+                        "fallback_provider": self.fallback_name,
+                        "error_category": error.__class__.__name__,
+                    },
                 )
                 raise error from primary_error
             try:
@@ -93,36 +111,67 @@ class AIProviderRouter:
                 )
             except AIProviderError as fallback_error:
                 self.metrics["fallback_failure"] += 1
+                self.last_fallback_result = "failed"
+                self.last_fallback_error_category = (
+                    fallback_error.__class__.__name__
+                )
                 logger.error(
-                    "AI fallback failed primary=%s fallback=%s primary_failure=%s "
-                    "fallback_failure=%s latency_ms=%d",
-                    self.primary_name,
-                    self.fallback_name,
-                    primary_error.__class__.__name__,
-                    fallback_error.__class__.__name__,
-                    self._elapsed_ms(started),
+                    "AI fallback failed",
+                    extra={
+                        "component": "ai_router",
+                        "operation": "fallback",
+                        "result": "failed",
+                        "primary_provider": self.primary_name,
+                        "fallback_provider": self.fallback_name,
+                        "primary_error_category": primary_error.__class__.__name__,
+                        "error_category": fallback_error.__class__.__name__,
+                        "latency_ms": self._elapsed_ms(started),
+                    },
                 )
                 raise AIProviderUnavailableError(
                     "All configured AI providers are temporarily unavailable"
                 ) from fallback_error
             self.metrics["fallback_success"] += 1
+            self.last_fallback_result = "success"
+            self.last_fallback_error_category = None
             logger.info(
-                "AI fallback succeeded provider=%s model=%s latency_ms=%d",
-                fallback_response.provider or self.fallback_name,
-                fallback_response.model or "unknown",
-                self._elapsed_ms(started),
+                "AI fallback succeeded",
+                extra={
+                    "component": "ai_router",
+                    "operation": "fallback",
+                    "result": "success",
+                    "fallback_provider": fallback_response.provider
+                    or self.fallback_name,
+                    "latency_ms": self._elapsed_ms(started),
+                },
             )
             return replace(fallback_response, fallback_used=True)
         self.metrics["primary_success"] += 1
+        self.last_primary_result = "success"
+        self.last_primary_error_category = None
         logger.info(
-            "AI primary succeeded provider=%s model=%s latency_ms=%d",
-            response.provider or self.primary_name,
-            response.model or "unknown",
-            self._elapsed_ms(started),
+            "AI primary succeeded",
+            extra={
+                "component": "ai_router",
+                "operation": "generate",
+                "result": "success",
+                "primary_provider": response.provider or self.primary_name,
+                "latency_ms": self._elapsed_ms(started),
+            },
         )
         return response
 
+    def health_snapshot(self) -> dict:
+        return {
+            "primary_result": self.last_primary_result,
+            "primary_error_category": self.last_primary_error_category,
+            "fallback_result": self.last_fallback_result,
+            "fallback_error_category": self.last_fallback_error_category,
+        }
+
     def _record_primary_failure(self, error: AIProviderError) -> None:
+        self.last_primary_result = "failed"
+        self.last_primary_error_category = error.__class__.__name__
         if isinstance(error, AIRateLimitError):
             self.metrics["primary_rate_limit"] += 1
         elif isinstance(error, AITimeoutError):

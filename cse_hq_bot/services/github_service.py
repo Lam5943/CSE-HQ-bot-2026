@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -9,6 +10,8 @@ from cse_hq_bot.permissions import ensure_can_manage_project
 from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.services.bug_service import BugService
 from cse_hq_bot.services.task_service import TaskService
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubService:
@@ -52,10 +55,39 @@ class GitHubService:
             }
             self.repo.replace_snapshot(snapshot)
             self.repo.set_sync_state("SUCCESS", succeeded=True)
+            logger.info(
+                "GitHub sync completed",
+                extra={
+                    "component": "github",
+                    "operation": "sync_all",
+                    "result": "success",
+                    "record_count": sum(len(items) for items in snapshot.values()),
+                },
+            )
             return self.get_overview(actor)
         except Exception as exc:
             self.repo.set_sync_state("FAILED", error=exc.__class__.__name__)
+            logger.exception(
+                "GitHub sync failed",
+                extra={
+                    "component": "github",
+                    "operation": "sync_all",
+                    "result": "failed",
+                    "error_category": exc.__class__.__name__,
+                },
+            )
             raise
+
+    def health_snapshot(self) -> dict:
+        if not self.enabled:
+            return {"enabled": False}
+        sync = self.repo.get_sync_state()
+        return {
+            "enabled": True,
+            "provider_available": self.provider is not None,
+            "sync": sync,
+            "stale": self._is_stale(sync),
+        }
 
     def get_overview(self, actor: Actor) -> dict:
         self._ensure_enabled()

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
@@ -18,6 +19,8 @@ except ImportError:  # pragma: no cover
     genai = None
     types = None
 
+logger = logging.getLogger(__name__)
+
 
 class GeminiProvider:
     def __init__(self, api_key: str | None, model_name: str):
@@ -28,6 +31,8 @@ class GeminiProvider:
         if genai is None or types is None:
             raise AIConfigurationError("google-genai package is not available")
         self.model_name = model_name
+        self.last_result = "unknown"
+        self.last_error_category: str | None = None
         try:
             self.client = genai.Client(api_key=api_key)
         except Exception as exc:  # pragma: no cover - SDK boundary
@@ -54,13 +59,43 @@ class GeminiProvider:
                 timeout=timeout_seconds,
             )
         except TimeoutError as exc:
-            raise AITimeoutError("The AI provider timed out") from exc
+            error = AITimeoutError("The AI provider timed out")
+            self._record_failure(error)
+            raise error from exc
         except Exception as exc:  # pragma: no cover - SDK boundary
-            raise self._normalize_error(exc) from exc
+            error = self._normalize_error(exc)
+            self._record_failure(error)
+            raise error from exc
+        try:
+            text = self._extract_text(response)
+        except AIProviderError as error:
+            self._record_failure(error)
+            raise
+        self.last_result = "success"
+        self.last_error_category = None
         return AIProviderResponse(
-            text=self._extract_text(response),
+            text=text,
             provider="gemini",
             model=self.model_name,
+        )
+
+    def health_snapshot(self) -> dict:
+        return {
+            "primary_result": self.last_result,
+            "primary_error_category": self.last_error_category,
+        }
+
+    def _record_failure(self, error: AIProviderError) -> None:
+        self.last_result = "failed"
+        self.last_error_category = error.__class__.__name__
+        logger.warning(
+            "AI provider request failed",
+            extra={
+                "component": "ai_gemini",
+                "operation": "generate",
+                "result": "failed",
+                "error_category": error.__class__.__name__,
+            },
         )
 
     def _extract_text(self, response: object) -> str:

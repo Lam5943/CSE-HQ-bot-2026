@@ -125,3 +125,15 @@ class ForumRepository:
                 (delivery_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_latest_delivery(self) -> dict | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT event_type, status, received_at, processed_at, error_code
+                FROM github_webhook_deliveries
+                ORDER BY received_at DESC, rowid DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return dict(row) if row else None

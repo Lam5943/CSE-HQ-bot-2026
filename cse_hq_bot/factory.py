@@ -31,6 +31,7 @@ from cse_hq_bot.services.decision_service import DecisionService
 from cse_hq_bot.services.forum_publishing_service import ForumPublishingService
 from cse_hq_bot.services.github_event_service import GitHubEventService
 from cse_hq_bot.services.github_service import GitHubService
+from cse_hq_bot.services.health_service import HealthService
 from cse_hq_bot.services.meeting_service import MeetingService
 from cse_hq_bot.services.project_context_service import ProjectContextService
 from cse_hq_bot.services.project_service import ProjectService
@@ -46,6 +47,8 @@ class ServiceContainer:
     def __init__(self, config: Config):
         db = Database(config.database_path)
         db.initialize()
+        self.config = config
+        self.db = db
 
         project_repo = ProjectRepository(db)
         ai_session_repo = AISessionRepository(db)
@@ -133,6 +136,15 @@ class ServiceContainer:
         )
 
         provider = build_ai_provider(config)
+        self.ai_provider = provider
+        self.health_service = HealthService(
+            config,
+            db,
+            self.github_service,
+            forum_repo,
+            webhook_server=self.github_webhook_server,
+            ai_provider=provider,
+        )
         self.ai_action_registry = AIActionRegistry(
             self.task_service,
             self.bug_service,

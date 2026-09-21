@@ -71,8 +71,26 @@ class GitHubWebhookProcessor:
             else ""
         )
         if full_name != self.repository_full_name:
+            logger.info(
+                "GitHub webhook ignored",
+                extra={
+                    "component": "github_webhook",
+                    "operation": "process_delivery",
+                    "delivery_id": delivery_id,
+                    "result": "repository_mismatch",
+                },
+            )
             return GitHubWebhookOutcome("IGNORED", 202, "Repository does not match")
         if not self.repo.claim_delivery(delivery_id, event_type):
+            logger.info(
+                "GitHub webhook duplicate ignored",
+                extra={
+                    "component": "github_webhook",
+                    "operation": "process_delivery",
+                    "delivery_id": delivery_id,
+                    "result": "duplicate",
+                },
+            )
             return GitHubWebhookOutcome("DUPLICATE", 202, "Delivery already processed")
         try:
             result = await self.event_service.handle(event_type, payload)
@@ -80,12 +98,29 @@ class GitHubWebhookProcessor:
             self.repo.finish_delivery(delivery_id, "FAILED", exc.__class__.__name__)
             logger.exception(
                 "GitHub webhook processing failed",
-                extra={"delivery_id": delivery_id, "event_type": event_type},
+                extra={
+                    "component": "github_webhook",
+                    "operation": "process_delivery",
+                    "delivery_id": delivery_id,
+                    "event_type": event_type,
+                    "result": "failed",
+                    "error_category": exc.__class__.__name__,
+                },
             )
             return GitHubWebhookOutcome(
                 "FAILED", 503, "Webhook event could not be published"
             )
         self.repo.finish_delivery(delivery_id, "PROCESSED")
+        logger.info(
+            "GitHub webhook processed",
+            extra={
+                "component": "github_webhook",
+                "operation": "process_delivery",
+                "delivery_id": delivery_id,
+                "event_type": event_type,
+                "result": "success",
+            },
+        )
         return GitHubWebhookOutcome("PROCESSED", 202, result)
 
     def _verify_signature(self, signature: str, body: bytes) -> None:
@@ -117,6 +152,10 @@ class GitHubWebhookServer:
         self.path = path
         self._runner: web.AppRunner | None = None
 
+    @property
+    def is_listening(self) -> bool:
+        return self._runner is not None
+
     async def start(self) -> None:
         app = web.Application(client_max_size=1_000_000)
         app.router.add_post(self.path, self._handle_request)
@@ -139,7 +178,16 @@ class GitHubWebhookServer:
         body = await request.read()
         try:
             result = await self.processor.process(request.headers, body)
-        except GitHubWebhookSignatureError:
+        except GitHubWebhookSignatureError as exc:
+            logger.warning(
+                "GitHub webhook rejected",
+                extra={
+                    "component": "github_webhook",
+                    "operation": "verify_signature",
+                    "result": "rejected",
+                    "error_category": exc.__class__.__name__,
+                },
+            )
             return web.json_response(
                 {"status": "REJECTED", "detail": "Invalid signature"}, status=401
             )

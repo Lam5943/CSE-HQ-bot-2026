@@ -277,6 +277,7 @@ def test_router_primary_success_does_not_call_fallback():
     assert len(primary.calls) == 1
     assert fallback.calls == []
     assert router.metrics == {"primary_success": 1}
+    assert router.health_snapshot()["primary_result"] == "success"
 
 
 @pytest.mark.parametrize(
@@ -307,6 +308,12 @@ def test_router_eligible_failure_uses_fallback_once_with_identical_grounding(
     assert fallback.calls[0]["context_records"] == CONTEXT
     assert router.metrics["fallback_attempt"] == 1
     assert router.metrics["fallback_success"] == 1
+    assert router.health_snapshot() == {
+        "primary_result": "failed",
+        "primary_error_category": primary_error.__class__.__name__,
+        "fallback_result": "success",
+        "fallback_error_category": None,
+    }
 
 
 @pytest.mark.parametrize(
@@ -347,6 +354,7 @@ def test_router_dual_failure_is_controlled_and_never_loops():
         _run_router(router)
     assert len(primary.calls) == len(fallback.calls) == 1
     assert router.metrics["fallback_failure"] == 1
+    assert router.health_snapshot()["fallback_result"] == "failed"
 
 
 def test_router_missing_fallback_config_is_deferred_until_needed():
