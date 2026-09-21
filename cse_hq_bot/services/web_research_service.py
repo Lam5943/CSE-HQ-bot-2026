@@ -1,11 +1,14 @@
-import asyncio
 import re
 from dataclasses import dataclass
 
 import aiohttp
 
 from cse_hq_bot.ai.base import RetrievedContextRecord
-from cse_hq_bot.errors import AIConfigurationError, AIProviderUnavailableError, AIRateLimitError
+from cse_hq_bot.errors import (
+    AIConfigurationError,
+    AIProviderUnavailableError,
+    AIRateLimitError,
+)
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
@@ -124,7 +127,7 @@ class TavilyWebResearchService:
                     source_type="web",
                     source_id=f"WEB-{index:03d}",
                     title=title[:180],
-                    content=snippet[:3000],
+                    content=snippet[:1600],
                     timestamp=None,
                     retrieval_reason="fresh read-only web research",
                     url=url,
