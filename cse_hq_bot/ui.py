@@ -1981,6 +1981,62 @@ class TasksView(OwnedView):
         await self.render_list(interaction)
 
 
+
+class DashboardTasksView(TasksView):
+    def __init__(
+        self,
+        owner_id: int,
+        actor_resolver: Callable[[discord.Interaction], Actor],
+        task_service: TaskService,
+        project_service: ProjectService,
+    ):
+        super().__init__(
+            owner_id=owner_id,
+            actor_resolver=actor_resolver,
+            task_service=task_service,
+        )
+        self.project_service = project_service
+        self.mode = "all"
+
+    def _mode_label(self) -> str:
+        if self.mode == "all":
+            return "Project Tasks"
+        return super()._mode_label()
+
+    @discord.ui.button(
+        label="Control Center",
+        emoji="🛰️",
+        style=discord.ButtonStyle.secondary,
+        row=4,
+    )
+    async def back_to_control_center(
+        self,
+        interaction: discord.Interaction,
+        _: discord.ui.Button,
+    ) -> None:
+        actor = self.actor_resolver(interaction)
+        try:
+            self.project_service.ensure_can_manage(actor)
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
+            )
+            return
+        dashboard = self.project_service.get_dashboard()
+        await interaction.response.edit_message(
+            embed=build_dashboard_control_embed(dashboard),
+            view=DashboardControlView(
+                owner_id=self.owner_id,
+                actor_resolver=self.actor_resolver,
+                project_service=self.project_service,
+                task_service=self.task_service,
+                dashboard=dashboard,
+            ),
+        )
+
+
+
 def build_github_overview_embed(data: dict) -> discord.Embed:
     embed = surface_embed("github", description="### Repository pulse")
     repository = data.get("repository")
