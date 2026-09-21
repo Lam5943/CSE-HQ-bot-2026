@@ -923,64 +923,124 @@ class AIActionConfirmationView(OwnedView):
             await interaction.response.send_message(message, ephemeral=True)
 
 
-class ProjectManageModal(discord.ui.Modal, title="Manage Project Dashboard"):
+class ProjectOverviewModal(discord.ui.Modal, title="Project Info"):
     def __init__(
         self,
-        project_service: ProjectService,
-        actor: Actor,
+        control_view: "DashboardControlView",
         dashboard: ProjectDashboard,
     ):
         super().__init__()
-        self.project_service = project_service
-        self.actor = actor
+        self.control_view = control_view
+        self.name_input = discord.ui.TextInput(
+            label="Project Name",
+            max_length=120,
+            default=dashboard.name,
+        )
+        self.description_input = discord.ui.TextInput(
+            label="Description",
+            style=discord.TextStyle.paragraph,
+            max_length=1024,
+            default=dashboard.description,
+            required=False,
+        )
         self.goal_input = discord.ui.TextInput(
-            label="Goal", max_length=256, default=dashboard.goal, required=False
-        )
-        self.phase_input = discord.ui.TextInput(
-            label="Phase", max_length=80, default=dashboard.phase, required=False
-        )
-        self.sprint_input = discord.ui.TextInput(
-            label="Sprint", max_length=80, default=dashboard.sprint, required=False
-        )
-        self.deadline_input = discord.ui.TextInput(
-            label="Deadline", max_length=80, default=dashboard.deadline, required=False
-        )
-        self.status_input = discord.ui.TextInput(
-            label="Status", max_length=80, default=dashboard.status, required=False
+            label="Current Objective",
+            style=discord.TextStyle.paragraph,
+            max_length=512,
+            default=dashboard.goal,
+            required=False,
         )
         for item in (
+            self.name_input,
+            self.description_input,
             self.goal_input,
-            self.phase_input,
-            self.sprint_input,
-            self.deadline_input,
-            self.status_input,
         ):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        actor = self.control_view.actor_resolver(interaction)
         try:
-            self.project_service.update_management(
-                self.actor,
-                goal=_optional(self.goal_input.value),
-                phase=_optional(self.phase_input.value),
-                sprint=_optional(self.sprint_input.value),
-                deadline=_optional(self.deadline_input.value),
-                status=_optional(self.status_input.value),
+            self.control_view.project_service.update_management(
+                actor,
+                name=self.name_input.value.strip(),
+                description=self.description_input.value.strip(),
+                goal=self.goal_input.value.strip(),
             )
-            await interaction.response.send_message(
-                "Dashboard settings updated. Use Refresh to load latest data.",
-                ephemeral=True,
+            await self.control_view.render(
+                interaction,
+                notice="Project info updated.",
             )
         except PermissionDeniedError:
-            await interaction.response.send_message("You are not allowed to manage this.", ephemeral=True)
-        except CSEHQError as error:
-            logger.exception("Project management failed", exc_info=error)
             await interaction.response.send_message(
-                "Unable to update project settings right now.", ephemeral=True
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
             )
-        except Exception as error:  # pragma: no cover
-            logger.exception("Unexpected project management error", exc_info=error)
-            await interaction.response.send_message("Unexpected error occurred.", ephemeral=True)
+        except CSEHQError as error:
+            logger.exception("Project info update failed", exc_info=error)
+            await interaction.response.send_message(
+                "Unable to update project info right now.",
+                ephemeral=True,
+            )
+
+
+class ProjectExecutionModal(discord.ui.Modal, title="Execution Settings"):
+    def __init__(
+        self,
+        control_view: "DashboardControlView",
+        dashboard: ProjectDashboard,
+    ):
+        super().__init__()
+        self.control_view = control_view
+        self.phase_input = discord.ui.TextInput(
+            label="Phase",
+            max_length=80,
+            default=dashboard.phase,
+            required=False,
+        )
+        self.sprint_input = discord.ui.TextInput(
+            label="Sprint",
+            max_length=80,
+            default=dashboard.sprint,
+            required=False,
+        )
+        self.deadline_input = discord.ui.TextInput(
+            label="Deadline",
+            max_length=80,
+            default=dashboard.deadline,
+            required=False,
+            placeholder="e.g. 2026-10-10 or Demo Week",
+        )
+        for item in (
+            self.phase_input,
+            self.sprint_input,
+            self.deadline_input,
+        ):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        actor = self.control_view.actor_resolver(interaction)
+        try:
+            self.control_view.project_service.update_management(
+                actor,
+                phase=self.phase_input.value.strip(),
+                sprint=self.sprint_input.value.strip(),
+                deadline=self.deadline_input.value.strip(),
+            )
+            await self.control_view.render(
+                interaction,
+                notice="Execution settings updated.",
+            )
+        except PermissionDeniedError:
+            await interaction.response.send_message(
+                "Only leaders or co-leads can manage the dashboard.",
+                ephemeral=True,
+            )
+        except CSEHQError as error:
+            logger.exception("Execution settings update failed", exc_info=error)
+            await interaction.response.send_message(
+                "Unable to update execution settings right now.",
+                ephemeral=True,
+            )
 
 
 class TaskCreateModal(discord.ui.Modal, title="Create Task"):
