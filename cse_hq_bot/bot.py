@@ -1202,14 +1202,36 @@ class CSEHQBot(commands.Bot):
         if isinstance(error, AIConfigurationError):
             return "Cấu hình AI đang có vấn đề nên mình chưa gọi model được." if vietnamese else "The AI configuration is unavailable right now."
         if isinstance(error, AIRateLimitError):
+            retry_after = getattr(error, "retry_after_seconds", None)
+            wait_seconds = (
+                max(1, int(float(retry_after) + 0.999))
+                if isinstance(retry_after, (int, float)) and retry_after > 0
+                else None
+            )
             if vietnamese:
+                wait_hint = (
+                    f" khoảng {wait_seconds}s"
+                    if wait_seconds is not None
+                    else " một chút"
+                )
                 if casual_bro:
                     return (
-                        "Con AI đang dính rate limit xíu bro 😭 mình đã retry rồi nhưng "
-                        "provider vẫn chưa nhả; thử reply lại chút nữa nha."
+                        "Mình đang dính rate limit xíu bro 😭 đã retry rồi mà quota "
+                        f"vẫn chưa nhả; thử reply lại sau{wait_hint} nha."
                     )
-                return "AI đang bị rate limit một chút; mình đã retry rồi, thử lại sau nhé."
-            return "The AI provider is rate-limiting requests right now; I retried, but it still needs a moment."
+                return (
+                    "AI đang bị rate limit; mình đã retry rồi, "
+                    f"thử lại sau{wait_hint} nhé."
+                )
+            wait_hint = (
+                f" about {wait_seconds}s"
+                if wait_seconds is not None
+                else " a moment"
+            )
+            return (
+                "The AI provider is rate-limiting requests right now; I retried, "
+                f"but it still needs{wait_hint}."
+            )
         if isinstance(error, AITimeoutError):
             return "AI bị timeout mất rồi, thử lại câu này nha." if vietnamese else "The AI request timed out—try that message again."
         if isinstance(error, AIProviderError):

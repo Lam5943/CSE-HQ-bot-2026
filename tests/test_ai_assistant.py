@@ -743,11 +743,12 @@ def test_bot_safe_ai_messages_are_concise():
 def test_bot_rate_limit_message_adapts_to_casual_vietnamese():
     bot = CSEHQBot(SimpleNamespace())
     message = bot._safe_ai_error_message(
-        AIRateLimitError("limited"),
+        AIRateLimitError("limited", retry_after_seconds=2.5),
         "bro đưa mình pros and cons nha",
     )
 
     assert "rate limit" in message
     assert "bro" in message
     assert "retry" in message
+    assert "3s" in message
     assert "Please try again later" not in message
