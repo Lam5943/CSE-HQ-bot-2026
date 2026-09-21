@@ -410,6 +410,65 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
     set_surface_footer(embed, "project", detail="Live overview")
     return embed
 
+def build_dashboard_control_embed(
+    dashboard: ProjectDashboard,
+    *,
+    notice: str | None = None,
+) -> discord.Embed:
+    status_icon, color = _dashboard_status_style(dashboard.status)
+    embed = surface_embed(
+        "project",
+        title="Dashboard Control Center",
+        description=(
+            f"### {dashboard.name}\n"
+            "Manage project metadata and execution without editing a giant five-field form.\n\n"
+            f"{status_icon} **{_trim(dashboard.status)}**  ·  "
+            f"🧭 {_trim(dashboard.phase)}  ·  🏃 {_trim(dashboard.sprint)}"
+        ),
+        color=color,
+        timestamp=dashboard.updated_at,
+    )
+    embed.add_field(
+        name="🪪 Project Info",
+        value=(
+            f"**Description**\n{_trim(dashboard.description, default='No description yet.')}\n\n"
+            f"**Goal**\n{_trim(dashboard.goal, default='No goal yet.')}"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="⚙️ Execution",
+        value=(
+            f"**Phase**  {_trim(dashboard.phase)}\n"
+            f"**Sprint**  {_trim(dashboard.sprint)}\n"
+            f"**Deadline**  {_trim(dashboard.deadline)}"
+        ),
+        inline=True,
+    )
+    embed.add_field(
+        name="📈 Progress Source",
+        value=(
+            f"**{dashboard.task_done}/{dashboard.task_total} tasks done**\n"
+            "Progress is derived from task state, never typed manually."
+        ),
+        inline=True,
+    )
+    if notice:
+        embed.add_field(name="✅ Updated", value=notice, inline=False)
+    embed.add_field(
+        name="🧭 Controls",
+        value=(
+            "**Project Info** — name, description, goal\n"
+            "**Execution** — phase, sprint, deadline\n"
+            "**Status** — choose a project state\n"
+            "**Progress & Tasks** — update the tasks that drive the progress bar"
+        ),
+        inline=False,
+    )
+    set_surface_footer(embed, "project", detail="Control Center")
+    return embed
+
+
 def build_weekly_dashboard_embed(
     dashboard: ProjectDashboard,
     week_key: str,
