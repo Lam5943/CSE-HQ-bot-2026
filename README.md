@@ -6,7 +6,7 @@ CSE-HQ is a Discord bot MVP for project coordination. It provides:
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
 - Weekly progress reporting
 - Grounded project Q&A through a pluggable AI provider
-- A private, grounded assistant with persistent sessions and explicitly confirmed Task/Bug actions
+- A private, grounded assistant with persistent sessions and explicitly confirmed internal actions
 - A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
 
 ## Requirements
@@ -282,7 +282,7 @@ Opens a private standup panel with:
 Opens the private AI assistant home panel with:
 
 - Grounded Q&A for tasks, bugs, meetings, decisions, standups, GitHub context, and recent activity
-- Human-confirmed proposals for one supported Task or Bug mutation at a time
+- Human-confirmed proposals for one supported Task, Bug, Meeting, Decision, or own Standup mutation at a time
 - **New Session** to create a private Discord thread-backed AI session
 - **My Sessions** to list your persisted AI sessions
 - Natural thread conversation for authorized session owners only
@@ -293,9 +293,10 @@ The assistant is intentionally bounded and permission-aware:
 - CSE-HQ remains the source of truth for project state and permissions
 - Project-specific answers are grounded only in retrieved records the actor may access
 - If project evidence is missing, the assistant should say so explicitly
-- Supported Task/Bug mutations produce a persisted preview with **Confirm** and **Cancel**; no mutation occurs when the preview is shown
+- Supported mutations produce a persisted preview with **Confirm** and **Cancel**; no mutation occurs when the preview is shown
 - Confirmation ownership, expiry, session state, permissions, target state, and lifecycle transitions are checked again before execution
-- Meeting, decision, standup, GitHub, repository, batch, and multi-step actions remain unavailable
+- Only the current user's standup may be submitted or updated; other-user and team-wide standup writes are rejected
+- GitHub, repository, deletion, batch, autonomous, and multi-step actions remain unavailable
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
 
 ### `/weekly_report`
@@ -384,24 +385,31 @@ Fallback is attempted only after a normalized rate-limit, timeout, temporary con
 
 Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, SDK retries are disabled for the OpenAI fallback, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop Gemini startup or successful Gemini requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
 
-## AI Actions v2
+## AI Actions v2.1
 
-AI Actions v2 adds a bounded mutation path alongside ordinary grounded Q&A. The language model may interpret a request into a structured proposal, but it cannot execute service methods. CSE-HQ validates the proposal, persists it, displays its exact effect, and requires the proposal owner to press **Confirm** before application code invokes the existing domain service.
+AI Actions v2.1 extends the existing bounded mutation path across CSE-HQ's internal project-management domains. The language model may interpret a request into a structured proposal, but it cannot execute service methods. CSE-HQ validates the proposal, persists it, displays its exact effect, and requires the proposal owner to press **Confirm** before application code invokes the existing domain service.
 
 Supported actions are:
 
 - Tasks: create, assign, start, block, complete, and reopen
 - Bugs: assign, transition to a supported status, resolve, and reopen
+- Meetings: create, start, complete, cancel, add a participant, and add a note
+- Decisions: create and edit
+- Standups: submit or update the requesting user's standup for the current day
 
-Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Gemini or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls `TaskService` or `BugService`. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
+Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Gemini or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls the existing domain service. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
 
 Closing a session marks its pending proposals failed and non-executable. Expiration is enforced from the persisted timestamp at confirmation time (including the exact expiry boundary), independently of Discord's View timeout. State or permission drift makes the claimed proposal fail rather than returning it to `PENDING`.
 
-Assignments resolve only to known Discord members available to the message context and revalidate the assignee against the current Discord guild member cache at confirmation time. Ambiguous, removed, or no-longer-visible members are rejected. Raw or malformed model output, unknown actions, arbitrary parameters, and inaccessible records cannot become executable proposals.
+Assignments and meeting participants resolve only to known Discord members available to the message context and are revalidated against the current Discord guild member cache at confirmation time. Ambiguous, removed, or no-longer-visible members are rejected. Meeting and decision titles are accepted only when they resolve unambiguously; stable `MEETING-###` and `DEC-###` identifiers are preferred. Raw or malformed model output, unknown actions, arbitrary parameters, and inaccessible records cannot become executable proposals.
+
+Meeting times are normalized to an absolute value before the proposal is persisted, so the confirmation preview shows the exact scheduled time. Meeting lifecycle validation remains authoritative in `MeetingService`. Meeting notes preserve the proposed content exactly.
+
+Decision edits show explicit old and new values and update only the requested fields. Stale decision state is rejected before overwrite, and successful edits retain the existing domain activity history. Standup proposals are restricted to the owner and current date, reuse the existing daily upsert rules, and are rejected if the date changes before confirmation.
 
 Proposal records remain auditable across bot restarts, but confirmation Views are not restored after a restart in the current architecture. A pending proposal therefore never executes silently; the user must create a fresh proposal if its original buttons are no longer active.
 
-GitHub remains strictly read-only. Meeting/decision/standup mutations, GitHub writes, batch actions, chained workflows, autonomous execution, shell commands, repository changes, and delegated confirmation are not supported. **The AI cannot modify project data without explicit user confirmation.**
+GitHub remains strictly read-only. Deletion, GitHub writes, batch actions, chained workflows, autonomous execution, shell commands, repository changes, other-user standup writes, and delegated confirmation are not supported. **The AI cannot modify project data without explicit user confirmation.**
 
 ## Configuring GitHub Integration v1
 
@@ -426,6 +434,12 @@ Run the test suite with:
 ```bash
 pytest
 ```
+
+Latest AI Actions v2.1 validation (2026-09-21): 218 offline tests passed. Python
+compilation, Ruff and Bandit on the changed code, `pip check`, `pip-audit`, and
+working-tree plus Git-history secret-signature scans also passed. Repository-wide
+Ruff and Bandit still report pre-existing style findings and five dynamic-SQL
+heuristics outside the files changed for v2.1; no new suppressions were added.
 
 ## Project Notes
 

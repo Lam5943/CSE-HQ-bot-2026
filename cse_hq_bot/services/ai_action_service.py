@@ -162,14 +162,21 @@ class AIActionService:
         proposal: ActionProposal,
         eligible_member_ids: set[str] | None,
     ) -> None:
-        if proposal.action_type not in {"task_create", "task_assign", "bug_assign"}:
+        if proposal.action_type not in {
+            "task_create",
+            "task_assign",
+            "bug_assign",
+            "meeting_add_participant",
+        }:
             return
-        assignee_id = proposal.arguments.get("assignee_id")
-        if assignee_id is None:
+        member_id = proposal.arguments.get("assignee_id") or proposal.arguments.get(
+            "participant_id"
+        )
+        if member_id is None:
             return
-        if eligible_member_ids is None or str(assignee_id) not in eligible_member_ids:
+        if eligible_member_ids is None or str(member_id) not in eligible_member_ids:
             raise AIActionValidationError(
-                "The proposed assignee is no longer an eligible project member"
+                "The proposed member is no longer an eligible project member"
             )
 
     def _validate_session(self, actor: Actor, session: dict) -> None:
