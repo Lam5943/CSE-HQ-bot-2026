@@ -707,8 +707,9 @@ class CSEHQBot(commands.Bot):
                 return
             actor = resolve_actor_from_interaction(interaction)
             sessions = self.container.ai_session_service.list_sessions(actor)
+            visible_sessions = await self._reconcile_ai_session_threads(sessions)
             await interaction.response.send_message(
-                embed=build_ai_sessions_embed(sessions),
+                embed=build_ai_sessions_embed(visible_sessions),
                 ephemeral=True,
             )
 
@@ -717,6 +718,64 @@ class CSEHQBot(commands.Bot):
         view.add_item(new_button)
         view.add_item(list_button)
         return view
+
+    async def _reconcile_ai_session_threads(
+        self,
+        sessions: list[dict],
+    ) -> list[dict]:
+        visible: list[dict] = []
+        for session in sessions:
+            thread_id = str(session["discord_thread_id"])
+            try:
+                numeric_thread_id = int(thread_id)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "AI session has an invalid Discord thread ID",
+                    extra={
+                        "component": "ai_session",
+                        "operation": "reconcile",
+                        "result": "invalid_thread_id",
+                        "session_id": session.get("id"),
+                    },
+                )
+                continue
+
+            if self.get_channel(numeric_thread_id) is not None:
+                visible.append(session)
+                continue
+
+            try:
+                await self.fetch_channel(numeric_thread_id)
+            except discord.NotFound:
+                self.container.ai_session_service.reconcile_deleted_thread(thread_id)
+                logger.info(
+                    "Pruned deleted Discord AI session",
+                    extra={
+                        "component": "ai_session",
+                        "operation": "reconcile",
+                        "result": "deleted",
+                        "session_id": session.get("id"),
+                        "discord_thread_id": thread_id,
+                    },
+                )
+                continue
+            except (discord.Forbidden, discord.HTTPException) as error:
+                logger.warning(
+                    "Unable to verify Discord AI session thread",
+                    exc_info=error,
+                    extra={
+                        "component": "ai_session",
+                        "operation": "reconcile",
+                        "result": "verification_failed",
+                        "session_id": session.get("id"),
+                        "discord_thread_id": thread_id,
+                    },
+                )
+                visible.append(session)
+                continue
+
+            visible.append(session)
+        return visible
 
     async def _create_ai_thread(
         self,
@@ -766,6 +825,22 @@ class CSEHQBot(commands.Bot):
         if isinstance(error, InvalidInputError):
             return str(error)
         return "Unable to handle this AI request right now."
+
+    async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent) -> None:
+        session_id = self.container.ai_session_service.reconcile_deleted_thread(
+            str(payload.thread_id)
+        )
+        if session_id is not None:
+            logger.info(
+                "Discord AI session thread deleted",
+                extra={
+                    "component": "ai_session",
+                    "operation": "thread_delete",
+                    "result": "reconciled",
+                    "session_id": session_id,
+                    "discord_thread_id": str(payload.thread_id),
+                },
+            )
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:  # pragma: no cover
         logger.exception("Unhandled command error", exc_info=error)
