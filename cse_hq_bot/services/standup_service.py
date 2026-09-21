@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 
 from cse_hq_bot.errors import InvalidInputError
 from cse_hq_bot.identifiers import standup_code
@@ -7,7 +7,6 @@ from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.permissions import ensure_can_view_standup
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
-
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ class StandupService:
         }
 
     def today_for_actor(self, actor: Actor) -> str:
-        return date.today().isoformat()
+        return datetime.now(UTC).date().isoformat()
 
     def resolve_entry_date(self, actor: Actor, value: str | None) -> str:
         return self._normalize_date(value or self.today_for_actor(actor))
@@ -107,7 +106,7 @@ class StandupService:
         ]
 
     def _normalize_date(self, value: str | None) -> str:
-        clean_value = (value or date.today().isoformat()).strip()
+        clean_value = (value or datetime.now(UTC).date().isoformat()).strip()
         try:
             return date.fromisoformat(clean_value).isoformat()
         except ValueError as exc:

@@ -1,6 +1,23 @@
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import NotFoundError
 
+_UPDATE_STATEMENTS = {
+    ("meetings", "title"): "UPDATE meetings SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "description"): "UPDATE meetings SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "agenda"): "UPDATE meetings SET agenda = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "status"): "UPDATE meetings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "scheduled_at"): "UPDATE meetings SET scheduled_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "started_at"): "UPDATE meetings SET started_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meetings", "ended_at"): "UPDATE meetings SET ended_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("meeting_notes", "content"): "UPDATE meeting_notes SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "title"): "UPDATE decisions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "decision"): "UPDATE decisions SET decision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "summary"): "UPDATE decisions SET summary = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "context"): "UPDATE decisions SET context = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "rationale"): "UPDATE decisions SET rationale = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ("decisions", "alternatives"): "UPDATE decisions SET alternatives = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+}
+
 
 class CollaborationRepository:
     def __init__(self, db: Database):
@@ -250,18 +267,11 @@ class CollaborationRepository:
     def _update_row(self, table: str, label: str, row_id: int, fields: dict) -> None:
         if not fields:
             return
-        assignments = []
-        values = []
-        for key, value in fields.items():
-            assignments.append(f"{key} = ?")
-            values.append(value)
-        if table in {"meetings", "decisions", "meeting_notes", "standups"}:
-            assignments.append("updated_at = CURRENT_TIMESTAMP")
-        values.append(row_id)
         with self.db.connect() as conn:
-            cur = conn.execute(
-                f"UPDATE {table} SET {', '.join(assignments)} WHERE id = ?",
-                values,
-            )
-            if cur.rowcount == 0:
-                raise NotFoundError(f"{label} {row_id} not found")
+            for key, value in fields.items():
+                statement = _UPDATE_STATEMENTS.get((table, key))
+                if statement is None:
+                    raise ValueError(f"Unsupported {label.lower()} field: {key}")
+                cur = conn.execute(statement, (value, row_id))
+                if cur.rowcount == 0:
+                    raise NotFoundError(f"{label} {row_id} not found")

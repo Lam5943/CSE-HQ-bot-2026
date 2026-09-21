@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Tests / Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project and validation tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Run Ruff
+        run: ruff check cse_hq_bot tests tools
+
+      - name: Compile Python sources
+        run: python -m compileall -q cse_hq_bot tests tools
+
+      - name: Run Bandit
+        run: bandit -q -r cse_hq_bot tools
+
+      - name: Validate installed dependencies
+        run: python -m pip check
+
+      - name: Audit dependencies
+        run: pip-audit
+
+      - name: Scan tracked files and Git history for secret signatures
+        run: python tools/check_secret_signatures.py

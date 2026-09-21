@@ -1,6 +1,15 @@
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import NotFoundError
 
+_UPDATE_STATEMENTS = {
+    "title": "UPDATE tasks SET title = ? WHERE id = ?",
+    "description": "UPDATE tasks SET description = ? WHERE id = ?",
+    "status": "UPDATE tasks SET status = ? WHERE id = ?",
+    "priority": "UPDATE tasks SET priority = ? WHERE id = ?",
+    "assignee_id": "UPDATE tasks SET assignee_id = ? WHERE id = ?",
+    "deadline": "UPDATE tasks SET deadline = ? WHERE id = ?",
+}
+
 
 class TaskRepository:
     def __init__(self, db: Database):
@@ -45,18 +54,16 @@ class TaskRepository:
     def update(self, task_id: int, fields: dict) -> None:
         if not fields:
             return
-        assignments = []
-        values = []
-        for key, value in fields.items():
-            assignments.append(f"{key} = ?")
-            values.append(value)
-        if fields.get("status") == "done":
-            assignments.append("completed_at = CURRENT_TIMESTAMP")
-        values.append(task_id)
         with self.db.connect() as conn:
-            cur = conn.execute(
-                f"UPDATE tasks SET {', '.join(assignments)} WHERE id = ?",
-                values,
-            )
-            if cur.rowcount == 0:
-                raise NotFoundError(f"Task {task_id} not found")
+            for key, value in fields.items():
+                statement = _UPDATE_STATEMENTS.get(key)
+                if statement is None:
+                    raise ValueError(f"Unsupported task field: {key}")
+                cur = conn.execute(statement, (value, task_id))
+                if cur.rowcount == 0:
+                    raise NotFoundError(f"Task {task_id} not found")
+            if fields.get("status") == "done":
+                conn.execute(
+                    "UPDATE tasks SET completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (task_id,),
+                )

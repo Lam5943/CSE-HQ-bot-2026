@@ -1,19 +1,23 @@
 import logging
 from datetime import UTC, date, datetime
+from typing import ClassVar
 
-from cse_hq_bot.errors import InvalidInputError, InvalidTransitionError, NotFoundError, PermissionDeniedError
+from cse_hq_bot.errors import (
+    InvalidInputError,
+    InvalidTransitionError,
+    PermissionDeniedError,
+)
 from cse_hq_bot.identifiers import meeting_code
 from cse_hq_bot.models import Actor, MeetingStatus, Role
 from cse_hq_bot.permissions import ensure_can_manage_meetings
 from cse_hq_bot.repositories.activity_repository import ActivityRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
 
-
 logger = logging.getLogger(__name__)
 
 
 class MeetingService:
-    _TRANSITIONS: dict[str, set[str]] = {
+    _TRANSITIONS: ClassVar[dict[str, set[str]]] = {
         MeetingStatus.SCHEDULED.value: {
             MeetingStatus.IN_PROGRESS.value,
             MeetingStatus.CANCELLED.value,
@@ -186,7 +190,7 @@ class MeetingService:
         except ValueError:
             pass
         try:
-            parsed = datetime.fromisoformat(clean_value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(clean_value)
         except ValueError as exc:
             raise InvalidInputError("Use a valid scheduled time.") from exc
         return parsed.isoformat(sep=" ", timespec="minutes")

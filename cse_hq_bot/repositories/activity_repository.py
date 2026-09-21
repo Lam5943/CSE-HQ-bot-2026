@@ -39,39 +39,30 @@ class ActivityRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict]:
-        clauses: list[str] = []
-        values: list[object] = []
-        if entity_type:
-            clauses.append("entity_type = ?")
-            values.append(entity_type)
-        if entity_id:
-            clauses.append("entity_id = ?")
-            values.append(entity_id)
-        if actor_id:
-            clauses.append("actor_id = ?")
-            values.append(actor_id)
-        if event_type:
-            clauses.append("event_type = ?")
-            values.append(event_type)
-        if start_time:
-            clauses.append("created_at >= ?")
-            values.append(start_time)
-        if end_time:
-            clauses.append("created_at <= ?")
-            values.append(end_time)
-        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        values.extend([limit, max(offset, 0)])
+        filters = (
+            entity_type or None,
+            entity_id or None,
+            actor_id or None,
+            event_type or None,
+            start_time or None,
+            end_time or None,
+        )
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"""
+                """
                 SELECT id, event_type, entity_type, entity_id, actor_id, metadata, created_at
                 FROM activities
-                {where_clause}
+                WHERE (? IS NULL OR entity_type = ?)
+                  AND (? IS NULL OR entity_id = ?)
+                  AND (? IS NULL OR actor_id = ?)
+                  AND (? IS NULL OR event_type = ?)
+                  AND (? IS NULL OR created_at >= ?)
+                  AND (? IS NULL OR created_at <= ?)
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 OFFSET ?
                 """,
-                values,
+                (*[item for value in filters for item in (value, value)], limit, max(offset, 0)),
             ).fetchall()
         return [self._deserialize(dict(row)) for row in rows]
 
