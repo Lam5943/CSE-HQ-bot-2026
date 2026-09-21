@@ -42,6 +42,8 @@ class HealthService:
             ("groq", "Groq", self._groq),
             ("gemini", "Gemini", self._gemini),
             ("openai_fallback", "OpenAI fallback", self._openai_fallback),
+            ("web_research", "Web research", self._web_research),
+            ("welcome", "Welcome", self._welcome),
             ("github", "GitHub", self._github),
             ("webhook", "GitHub webhook", self._webhook),
             ("forum_bug", "Bug Forum", lambda: self._forum("bug", "Bug Forum")),
@@ -173,6 +175,48 @@ class HealthService:
             "OpenAI fallback",
             HealthState.HEALTHY,
             "configured",
+        )
+
+    def _web_research(self) -> HealthComponent:
+        if not self.config.web_research_enabled:
+            return HealthComponent(
+                "web_research",
+                "Web research",
+                HealthState.DISABLED,
+                "disabled",
+            )
+        if not self.config.tavily_api_key:
+            return HealthComponent(
+                "web_research",
+                "Web research",
+                HealthState.FAILED,
+                "configuration incomplete",
+            )
+        return HealthComponent(
+            "web_research",
+            "Web research",
+            HealthState.HEALTHY,
+            "read-only search configured",
+        )
+
+    def _welcome(self) -> HealthComponent:
+        if not self.config.welcome_enabled:
+            return HealthComponent(
+                "welcome",
+                "Welcome",
+                HealthState.DISABLED,
+                "disabled",
+            )
+        detail = (
+            "enabled; channel override configured"
+            if self.config.welcome_channel_id
+            else "enabled; system-channel fallback"
+        )
+        return HealthComponent(
+            "welcome",
+            "Welcome",
+            HealthState.HEALTHY,
+            detail,
         )
 
     def _github(self) -> HealthComponent:
