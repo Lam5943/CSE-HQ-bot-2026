@@ -19,7 +19,7 @@ SUPPORTED_IMAGE_EXTENSIONS = {
 }
 MAX_IMAGES_PER_MESSAGE = 4
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
 ATTACHMENT_READ_TIMEOUT_SECONDS = 10
 
 
@@ -68,7 +68,7 @@ async def extract_ai_images(
             )
         if total_bytes + declared_size > MAX_TOTAL_IMAGE_BYTES:
             raise InvalidInputError(
-                "Image attachments exceed the 16 MB total limit for one AI request."
+                "Image attachments exceed the 12 MB total limit for one AI request."
             )
 
         try:
@@ -92,7 +92,7 @@ async def extract_ai_images(
         total_bytes += len(data)
         if total_bytes > MAX_TOTAL_IMAGE_BYTES:
             raise InvalidInputError(
-                "Image attachments exceed the 16 MB total limit for one AI request."
+                "Image attachments exceed the 12 MB total limit for one AI request."
             )
 
         detected_mime = _detect_image_mime(data)
