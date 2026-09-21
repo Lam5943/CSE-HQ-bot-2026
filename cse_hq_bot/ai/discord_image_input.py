@@ -55,7 +55,8 @@ async def extract_ai_images(
         )
 
     images: list[AIImage] = []
-    total_bytes = 0
+    declared_total_bytes = 0
+    actual_total_bytes = 0
     for attachment in candidates:
         declared_size = int(getattr(attachment, "size", 0) or 0)
         if declared_size <= 0:
@@ -66,7 +67,8 @@ async def extract_ai_images(
             raise InvalidInputError(
                 f"Image attachment {attachment.filename!r} exceeds the 8 MB per-image limit."
             )
-        if total_bytes + declared_size > MAX_TOTAL_IMAGE_BYTES:
+        declared_total_bytes += declared_size
+        if declared_total_bytes > MAX_TOTAL_IMAGE_BYTES:
             raise InvalidInputError(
                 "Image attachments exceed the 12 MB total limit for one AI request."
             )
@@ -89,8 +91,8 @@ async def extract_ai_images(
             raise InvalidInputError(
                 f"Image attachment {attachment.filename!r} is empty or too large."
             )
-        total_bytes += len(data)
-        if total_bytes > MAX_TOTAL_IMAGE_BYTES:
+        actual_total_bytes += len(data)
+        if actual_total_bytes > MAX_TOTAL_IMAGE_BYTES:
             raise InvalidInputError(
                 "Image attachments exceed the 12 MB total limit for one AI request."
             )
