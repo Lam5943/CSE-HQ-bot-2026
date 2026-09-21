@@ -31,6 +31,9 @@ class AISessionService:
         self._busy_sessions: set[int] = set()
         self._busy_state_lock = asyncio.Lock()
 
+    def next_session_number(self, actor: Actor) -> int:
+        return self.repo.count_sessions_for_owner(actor.user_id) + 1
+
     def create_session(self, actor: Actor, discord_thread_id: str) -> dict:
         if self.repo.get_session_by_thread_id(discord_thread_id) is not None:
             raise AISessionConflictError(
