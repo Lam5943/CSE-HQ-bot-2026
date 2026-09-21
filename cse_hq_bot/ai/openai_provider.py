@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
@@ -18,6 +19,8 @@ except ImportError:  # pragma: no cover
     openai = None
     AsyncOpenAI = None
 
+logger = logging.getLogger(__name__)
+
 
 class OpenAIProvider:
     def __init__(self, api_key: str | None, model_name: str | None):
@@ -32,6 +35,8 @@ class OpenAIProvider:
         if openai is None or AsyncOpenAI is None:
             raise AIConfigurationError("openai package is not available")
         self.model_name = model_name
+        self.last_result = "unknown"
+        self.last_error_category: str | None = None
         try:
             self.client = AsyncOpenAI(api_key=api_key, max_retries=0)
         except Exception as exc:  # pragma: no cover - SDK boundary
@@ -57,13 +62,43 @@ class OpenAIProvider:
                 timeout=timeout_seconds,
             )
         except TimeoutError as exc:
-            raise AITimeoutError("OpenAI request timed out") from exc
+            error = AITimeoutError("OpenAI request timed out")
+            self._record_failure(error)
+            raise error from exc
         except Exception as exc:  # pragma: no cover - SDK boundary
-            raise self._normalize_error(exc) from exc
+            error = self._normalize_error(exc)
+            self._record_failure(error)
+            raise error from exc
+        try:
+            text = self._extract_text(response)
+        except AIProviderError as error:
+            self._record_failure(error)
+            raise
+        self.last_result = "success"
+        self.last_error_category = None
         return AIProviderResponse(
-            text=self._extract_text(response),
+            text=text,
             provider="openai",
             model=self.model_name,
+        )
+
+    def health_snapshot(self) -> dict:
+        return {
+            "fallback_result": self.last_result,
+            "fallback_error_category": self.last_error_category,
+        }
+
+    def _record_failure(self, error: AIProviderError) -> None:
+        self.last_result = "failed"
+        self.last_error_category = error.__class__.__name__
+        logger.warning(
+            "AI provider request failed",
+            extra={
+                "component": "ai_openai",
+                "operation": "generate",
+                "result": "failed",
+                "error_category": error.__class__.__name__,
+            },
         )
 
     def _extract_text(self, response: object) -> str:

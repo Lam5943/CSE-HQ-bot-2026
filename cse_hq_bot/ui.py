@@ -16,6 +16,7 @@ from cse_hq_bot.errors import (
     NotFoundError,
     PermissionDeniedError,
 )
+from cse_hq_bot.health_models import HealthReport, HealthState
 from cse_hq_bot.models import (
     Actor,
     BugStatus,
@@ -42,6 +43,42 @@ STALE_MEETING_MESSAGE = "This meeting is no longer available in its previous sta
 STALE_DECISION_MESSAGE = "This decision is no longer available in its previous state. Please refresh the decisions list."
 
 AI_RESPONSE_LIMIT = 1800
+
+
+def build_health_embed(report: HealthReport) -> discord.Embed:
+    colors = {
+        HealthState.HEALTHY: discord.Color.green(),
+        HealthState.DEGRADED: discord.Color.orange(),
+        HealthState.DISABLED: discord.Color.light_grey(),
+        HealthState.FAILED: discord.Color.red(),
+    }
+    icons = {
+        HealthState.HEALTHY: "✅",
+        HealthState.DEGRADED: "⚠️",
+        HealthState.DISABLED: "➖",
+        HealthState.FAILED: "❌",
+    }
+    embed = discord.Embed(
+        title="CSE-HQ Health",
+        description=(
+            f"Overall: **{report.overall.value}**\n"
+            f"Application version: `{report.version}`"
+        ),
+        color=colors[report.overall],
+    )
+    for component in report.components:
+        embed.add_field(
+            name=component.label,
+            value=(
+                f"{icons[component.state]} **{component.state.value}** — "
+                f"{component.detail}"
+            )[:1024],
+            inline=False,
+        )
+    embed.set_footer(
+        text=f"Checked {report.checked_at.isoformat(timespec='seconds')}"
+    )
+    return embed
 
 
 def _ai_action_error_message(error: CSEHQError) -> tuple[str, bool]:

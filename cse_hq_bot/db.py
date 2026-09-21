@@ -12,6 +12,11 @@ class Database:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def ping(self) -> bool:
+        with self.connect() as conn:
+            row = conn.execute("SELECT 1").fetchone()
+        return bool(row and row[0] == 1)
+
     def initialize(self) -> None:
         with self.connect() as conn:
             conn.executescript(
