@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import discord
 
-
 BRAND_COLOR = discord.Color.from_rgb(139, 92, 246)
 
 
