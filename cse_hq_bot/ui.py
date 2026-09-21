@@ -306,7 +306,7 @@ def _dashboard_task_progress(dashboard: ProjectDashboard, width: int = 10) -> st
     ratio = max(0.0, min(1.0, dashboard.task_done / dashboard.task_total))
     filled = min(width, max(0, int(ratio * width + 0.5)))
     bar = "█" * filled + "░" * (width - filled)
-    percentage = int(round(ratio * 100))
+    percentage = round(ratio * 100)
     return (
         f"{bar} **{percentage}%**\n"
         f"**{dashboard.task_done}/{dashboard.task_total}** done • "
