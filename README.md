@@ -10,7 +10,8 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Weekly progress reporting
 - Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
 - Grounded project Q&A through a pluggable AI provider
-- A private, grounded assistant with persistent sessions, bounded image understanding, a provider-independent mentor personality, and explicitly confirmed internal actions
+- A private, grounded assistant with persistent sessions, bounded image understanding, a provider-independent mentor personality, direct @mention replies, read-only web research, and explicitly confirmed internal actions
+- Automatic new-member welcomes using the shared CSE-HQ Discord card design
 - A fake AI provider for local development, Groq as the recommended free production primary, Gemini as an optional alternative, and optional OpenAI failover
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 - Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
@@ -25,6 +26,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 - Optional: a Groq API key for the recommended free production AI path
 - Optional: a Google Gemini API key when Gemini is selected instead
 - Optional: an OpenAI API key and configured model when paid fallback is explicitly enabled
+- Optional: a Tavily API key for bounded, read-only live web research
 
 ## Local Setup
 
@@ -62,7 +64,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
    cp .env.example .env
    ```
 
-5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` for local development; use `AI_PROVIDER=groq` with a Groq key for the recommended free production path, or `AI_PROVIDER=gemini` if Gemini is intentionally selected. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal.
+5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` for local development; use `AI_PROVIDER=groq` with a Groq key for the recommended free production path, or `AI_PROVIDER=gemini` if Gemini is intentionally selected. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal. Enable `WELCOME_ENABLED=true` only after enabling Discord's Server Members Intent. For live read-only web research, set `WEB_RESEARCH_ENABLED=true` and provide `TAVILY_API_KEY`.
 
 ## Environment Variables
 
@@ -72,6 +74,12 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
 | `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. When disabled, AI threads return one concise configuration hint per user instead of failing silently. |
+| `WELCOME_ENABLED` | No | `false` | Enable automatic welcome messages for new human members. Requires Discord's privileged Server Members Intent. |
+| `WELCOME_CHANNEL_ID` | No | — | Optional text-channel override for welcomes. When omitted, CSE-HQ prefers the server System Messages channel and then the first writable text channel. |
+| `WEB_RESEARCH_ENABLED` | No | `false` | Enable bounded read-only live web search for explicit research requests and freshness-sensitive external questions. |
+| `TAVILY_API_KEY` | Required when web research is enabled | — | Tavily API key used only with the Search endpoint. Never commit this value. |
+| `WEB_RESEARCH_MAX_RESULTS` | No | `4` | Maximum search results injected into one AI request, capped at 8. |
+| `WEB_RESEARCH_TIMEOUT` | No | `12` | Total timeout in seconds for one Tavily search request. |
 | `AI_PROVIDER` | No | `fake` | `fake`, `groq`, or `gemini`. Groq is the recommended free production provider. |
 | `GROQ_API_KEY` | Required when `AI_PROVIDER=groq` | — | Groq API key. Never commit this value. |
 | `GROQ_MODEL` | No | `qwen/qwen3.8-27b` | Groq model used for text and vision when `AI_PROVIDER=groq`. |
@@ -107,6 +115,12 @@ DISCORD_TOKEN=your_discord_bot_token
 DATABASE_PATH=./cse_hq.db
 LOG_LEVEL=INFO
 AI_ENABLE_MESSAGE_CONTENT=false
+WELCOME_ENABLED=false
+WELCOME_CHANNEL_ID=
+WEB_RESEARCH_ENABLED=false
+TAVILY_API_KEY=
+WEB_RESEARCH_MAX_RESULTS=4
+WEB_RESEARCH_TIMEOUT=12
 AI_PROVIDER=fake
 GROQ_API_KEY=
 GROQ_MODEL=qwen/qwen3.8-27b
@@ -130,7 +144,7 @@ GITHUB_BUG_LABEL=bug
 
 1. Open the Discord Developer Portal and create or select an application.
 2. Open **Bot**, create the bot user, and copy its token into `DISCORD_TOKEN`.
-3. Under **Privileged Gateway Intents**, enable only the intents required by the bot and by your Discord server configuration.
+3. Under **Privileged Gateway Intents**, enable **Message Content** when `AI_ENABLE_MESSAGE_CONTENT=true`, and enable **Server Members Intent** when `WELCOME_ENABLED=true`. Leave unused privileged intents disabled.
 4. Use **OAuth2 → URL Generator** to invite the bot to your server.
 5. Select the `bot` and `applications.commands` scopes.
 6. Grant the bot permission to view channels, send messages, and use application commands.
@@ -164,7 +178,11 @@ or process manager. Before deployment, confirm:
   permissions in each configured Forum.
 - The default Guilds and Guild Messages intents remain enabled. Discord's
   privileged Message Content intent is required only when natural AI thread chat
-  is enabled with `AI_ENABLE_MESSAGE_CONTENT=true`.
+  is enabled with `AI_ENABLE_MESSAGE_CONTENT=true`. Direct bot mentions can be
+  handled without opening a private AI session.
+- Automatic welcomes require `WELCOME_ENABLED=true` and Discord's privileged
+  Server Members Intent. If `WELCOME_CHANNEL_ID` is unset, CSE-HQ selects the
+  server System Messages channel or another writable text channel.
 - `DATABASE_PATH` points to backed-up persistent storage. Run one CSE-HQ process
   against a SQLite database; multi-process SQLite deployment is not tested.
 - Groq/Gemini/OpenAI credentials and model names are present only for providers you
@@ -294,8 +312,8 @@ are isolated behind adapters.
 AIService
   ↓
 RetrievalPlanner
-  ↓
-ProjectContextService
+  ├── ProjectContextService
+  └── Tavily Search (optional, read-only)
   ↓
 PromptBuilder
   ↓
@@ -445,6 +463,58 @@ The assistant is intentionally bounded and permission-aware:
 - Multimodal requests stay on the selected vision-capable primary provider; the text-only OpenAI fallback is not used for image requests
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
 
+### Direct @mention replies
+
+Outside private AI sessions, members can mention the bot directly in a server
+channel:
+
+```text
+@CSE HQ Assistant what is blocking my task?
+@CSE HQ Assistant search the web for the latest Qwen update
+```
+
+Mention replies are stateless and read-only. They reuse the same actor permissions,
+project grounding, personality policy, image validation, and source validation as
+private AI sessions, but they never create AI Action proposals. If a public mention
+asks CSE-HQ to mutate Tasks, Bugs, Meetings, Decisions, or Standups, the bot explains
+that project changes must go through a private `/ai` session with Confirm/Cancel.
+This prevents a casual public ping from becoming an execution boundary.
+
+### Read-only Web Research v1
+
+When `WEB_RESEARCH_ENABLED=true`, CSE-HQ can retrieve fresh public web evidence
+through Tavily Search. Qwen/Groq remains the reasoning model: Tavily only supplies
+bounded search results, each normalized into `WEB-###` context records with a
+source URL. The model is instructed to treat webpage snippets as untrusted data,
+cite matching `WEB-###` IDs, and never invent source IDs. CSE-HQ appends the
+consulted source links to the Discord answer.
+
+Web research activates when the user explicitly asks to search/research the web,
+or for freshness-sensitive external questions that the project retrieval planner
+does not recognize as internal project memory. Recognized questions such as
+"what am I currently working on?" stay entirely inside CSE-HQ records instead of
+wasting a web-search credit.
+
+The integration is deliberately retrieval-only:
+
+- Uses only Tavily's Search endpoint.
+- Does not expose crawl, browser automation, form submission, account actions,
+  GitHub writes, or arbitrary HTTP tools to the model.
+- Search results cannot trigger project mutations.
+- If live research is required but unavailable, CSE-HQ says it cannot verify the
+  current web instead of presenting stale model knowledge as current fact.
+- Result count, snippet size, timeout, and provider context remain bounded.
+
+### Automatic member welcome
+
+When `WELCOME_ENABLED=true`, CSE-HQ listens for new human guild members and sends
+a branded welcome card. `WELCOME_CHANNEL_ID` can pin the destination; otherwise
+the bot prefers the server System Messages channel and then the first text channel
+where it has View Channel and Send Messages permissions. Bot accounts are ignored.
+
+The welcome event only sends presentation content. It creates no project record,
+AI session, task, or external action.
+
 ### Personality Layer v1
 
 CSE-HQ owns its personality independently of Groq, Gemini, or any future model.
@@ -507,13 +577,13 @@ GitHub v1 never creates, edits, closes, merges, comments, reviews, triggers work
 ### `/health`
 
 Shows a private, bounded operational snapshot for Leaders and Co-Leads. It
-reports the Discord connection, SQLite connectivity, Groq, Gemini, and OpenAI fallback
-configuration/runtime state, GitHub cache sync, webhook listener and latest
-delivery, and the three Forum mappings. It also includes the installed
+reports the Discord connection, SQLite connectivity, Groq, Gemini, OpenAI fallback,
+read-only web research, welcome configuration, GitHub cache sync, webhook listener
+and latest delivery, and the three Forum mappings. It also includes the installed
 application version.
 
 `/health` uses local process and SQLite state only. It does not make live calls
-to Discord, Groq, Gemini, OpenAI, or GitHub, and it never displays tokens, secrets,
+to Discord, Groq, Gemini, OpenAI, Tavily, or GitHub, and it never displays tokens, secrets,
 model names, database paths, webhook payloads, repository identifiers, or Discord
 channel IDs.
 
@@ -748,6 +818,8 @@ For first-line troubleshooting:
 - One GitHub repository is supported, read-only. CSE-HQ performs no GitHub writes.
 - SQLite is the only database and the supported deployment is a single bot
   process with persistent local storage.
+- Tavily web research is optional and bounded by the configured/free account quota;
+  CSE-HQ does not silently replace unavailable live research with a claim of freshness.
 - AI answers are bounded by retrieved records and provider availability; failover
   is one optional OpenAI attempt after eligible selected-primary failures, not a general
   provider pool.
