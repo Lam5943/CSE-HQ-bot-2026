@@ -74,9 +74,9 @@ def build_health_embed(report: HealthReport) -> discord.Embed:
     )
     for component in report.components:
         embed.add_field(
-            name=component.label,
+            name=f"{icons[component.state]} {component.label}",
             value=(
-                f"{icons[component.state]} **{component.state.value}** — "
+                f"**{component.state.value}**\n"
                 f"{component.detail}"
             )[:1024],
             inline=False,
@@ -139,8 +139,9 @@ def split_ai_response(text: str, limit: int = AI_RESPONSE_LIMIT) -> list[str]:
 def build_ai_home_embed() -> discord.Embed:
     embed = surface_embed("ai", description="### Private teammate workspace")
     embed.description = (
-        "Private, project-grounded help from a mentor-style teammate, plus "
-        "explicitly confirmed internal actions."
+        "### Private teammate workspace\n"
+        "Project-grounded help from a mentor-style teammate, plus explicitly "
+        "confirmed internal actions."
     )
     embed.add_field(
         name="🧠 Capabilities",
@@ -174,7 +175,8 @@ def build_ai_home_embed() -> discord.Embed:
 def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
     embed = surface_embed("ai", title="My Sessions")
     if not sessions:
-        embed.description = "No AI sessions found."
+        embed.description = "### Your private sessions\n> No AI sessions found."
+        set_surface_footer(embed, "ai", detail="Private threads")
         return embed
     embed.description = "\n".join(
         (
@@ -195,6 +197,7 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
         description="### Ask naturally",
     )
     embed.description = (
+        "### Ask naturally\n"
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
         "analysis, or propose one supported internal action. The assistant is private, "
         "permission-aware, project-grounded, and behaves like an experienced low-pressure "
@@ -1588,9 +1591,15 @@ def build_github_overview_embed(data: dict) -> discord.Embed:
     embed = surface_embed("github", description="### Repository pulse")
     repository = data.get("repository")
     if not repository:
-        embed.description = "GitHub cache is empty. A Leader or Co-Lead can run Sync."
+        embed.description = (
+            "### Repository pulse\n"
+            "> GitHub cache is empty. A Leader or Co-Lead can run Sync."
+        )
     else:
-        embed.description = f"Repository: **{repository.get('owner')}/{repository.get('name')}**"
+        embed.description = (
+            "### Repository pulse\n"
+            f"**{repository.get('owner')}/{repository.get('name')}**"
+        )
         embed.add_field(name="Open Issues", value=str(data.get("open_issues", 0)), inline=True)
         embed.add_field(name="Open PRs", value=str(data.get("open_pull_requests", 0)), inline=True)
         embed.add_field(name="Failing Checks", value=str(data.get("failing_checks", 0)), inline=True)
