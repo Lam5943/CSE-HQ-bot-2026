@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
+from cse_hq_bot.ai.base import AIImage, AIMessage, AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.ai.prompt_renderer import render_provider_prompt
 from cse_hq_bot.errors import (
     AIConfigurationError,
@@ -49,7 +49,12 @@ class OpenAIProvider:
         messages: list[AIMessage],
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
+        images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
+        if images:
+            raise AIConfigurationError(
+                "OpenAI fallback vision is not enabled in AI Vision v1"
+            )
         prompt = render_provider_prompt(system_instruction, messages, context_records)
         try:
             client = self.client.with_options(timeout=timeout_seconds, max_retries=0)
