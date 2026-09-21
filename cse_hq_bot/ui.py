@@ -300,60 +300,62 @@ def _dashboard_status_style(status: str) -> tuple[str, discord.Color]:
     return "🔵", discord.Color.blurple()
 
 
-def _dashboard_task_progress(dashboard: ProjectDashboard, width: int = 10) -> str:
+def _dashboard_task_progress(dashboard: ProjectDashboard, width: int = 14) -> str:
     if dashboard.task_total <= 0:
-        return f"{'░' * width} **0%**\nNo tasks tracked yet."
+        return f"`{'░' * width}` **0%**\nNo tasks tracked yet."
     ratio = max(0.0, min(1.0, dashboard.task_done / dashboard.task_total))
     filled = min(width, max(0, int(ratio * width + 0.5)))
     bar = "█" * filled + "░" * (width - filled)
     percentage = round(ratio * 100)
     return (
-        f"{bar} **{percentage}%**\n"
-        f"**{dashboard.task_done}/{dashboard.task_total}** done • "
-        f"**{dashboard.task_open}** open"
+        f"`{bar}` **{percentage}%**\n"
+        f"{dashboard.task_done} of {dashboard.task_total} tasks completed"
     )
 
 
 def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
     status_icon, color = _dashboard_status_style(dashboard.status)
     description = _trim(dashboard.description, default="No project description yet.")
+    phase = _trim(dashboard.phase)
+    sprint = _trim(dashboard.sprint)
+    deadline = _trim(dashboard.deadline)
+    status = _trim(dashboard.status)
+
     embed = discord.Embed(
-        title=f"📊 {dashboard.name} • Project Dashboard",
-        description=f"> {description}",
+        title=f"🛰️ {dashboard.name} • Command Center",
+        description=(
+            f"> {description}\n\n"
+            f"{status_icon} **{status}**  ·  🧭 {phase}  ·  🏃 {sprint}"
+        ),
         color=color,
         timestamp=dashboard.updated_at,
     )
     embed.add_field(
-        name="🎯 Goal",
-        value=_trim(dashboard.goal),
+        name="🎯 Current Objective",
+        value=f"**{_trim(dashboard.goal)}**",
         inline=False,
     )
     embed.add_field(
-        name="📌 Status",
-        value=f"{status_icon} **{_trim(dashboard.status)}**",
-        inline=True,
-    )
-    embed.add_field(name="🧭 Phase", value=_trim(dashboard.phase), inline=True)
-    embed.add_field(name="🏃 Sprint", value=_trim(dashboard.sprint), inline=True)
-    embed.add_field(name="📅 Deadline", value=_trim(dashboard.deadline), inline=True)
-    embed.add_field(
-        name="✅ Task Progress",
+        name="📈 Delivery Progress",
         value=_dashboard_task_progress(dashboard),
         inline=False,
     )
+    embed.add_field(name="✅ Completed", value=f"**{dashboard.task_done}**\nTasks", inline=True)
+    embed.add_field(name="🧩 Open", value=f"**{dashboard.task_open}**\nTasks", inline=True)
+    embed.add_field(name="🐞 Bugs", value=f"**{dashboard.bug_open}**\nOpen", inline=True)
     embed.add_field(
-        name="🐞 Bugs",
-        value=f"**{dashboard.bug_open}** open • {dashboard.bug_total} total",
+        name="🗓 Meetings",
+        value=f"**{dashboard.meetings_total}**\nRecorded",
         inline=True,
     )
+    embed.add_field(name="📅 Deadline", value=f"**{deadline}**", inline=True)
     embed.add_field(
-        name="🗓️ Meetings",
-        value=f"**{dashboard.meetings_total}** recorded",
+        name="📦 Scope",
+        value=f"{dashboard.task_total} tasks · {dashboard.bug_total} bugs",
         inline=True,
     )
-    embed.set_footer(text="CSE-HQ • Project data updated")
+    embed.set_footer(text="CSE-HQ • Live project overview")
     return embed
-
 
 def build_weekly_dashboard_embed(
     dashboard: ProjectDashboard,
@@ -361,9 +363,9 @@ def build_weekly_dashboard_embed(
 ) -> discord.Embed:
     embed = build_dashboard_embed(dashboard)
     description = _trim(dashboard.description, default="No project description yet.")
-    embed.title = f"📆 {dashboard.name} • Weekly Snapshot"
+    embed.title = f"📆 {dashboard.name} • Weekly Pulse"
     embed.description = f"**{week_key}** · Team snapshot\n> {description}"
-    embed.set_footer(text=f"CSE-HQ • Weekly snapshot • {week_key}")
+    embed.set_footer(text=f"CSE-HQ • Weekly pulse • {week_key}")
     return embed
 
 
