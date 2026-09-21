@@ -54,6 +54,17 @@ class AISessionService:
         if self.action_service is not None:
             self.action_service.invalidate_session(session_id)
 
+    def reconcile_deleted_thread(self, discord_thread_id: str) -> int | None:
+        session = self.repo.get_session_by_thread_id(discord_thread_id)
+        if session is None:
+            return None
+        session_id = int(session["id"])
+        if session["status"] != "DELETED":
+            self.repo.mark_session_deleted(session_id)
+            if self.action_service is not None:
+                self.action_service.invalidate_session(session_id)
+        return session_id
+
     def get_session_by_thread_id(self, discord_thread_id: str) -> dict | None:
         return self.repo.get_session_by_thread_id(discord_thread_id)
 
