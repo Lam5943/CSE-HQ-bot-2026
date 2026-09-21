@@ -180,9 +180,10 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
 
 
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(
-        title="🤖 CSE-HQ • Private AI Session",
-        color=discord.Color.dark_teal(),
+    embed = surface_embed(
+        "ai",
+        title="Private Session",
+        description="### Ask naturally",
     )
     embed.description = (
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
@@ -207,9 +208,10 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
 
 
 def build_ai_action_embed(proposal: ActionProposal) -> discord.Embed:
-    embed = discord.Embed(
-        title="🤖 AI Action Proposal",
-        description=proposal.summary,
+    embed = surface_embed(
+        "ai",
+        title="Action Proposal",
+        description=f"### Proposed change\n{proposal.summary}",
         color=discord.Color.gold(),
     )
     embed.add_field(name="Status", value=proposal.status, inline=True)
@@ -322,9 +324,11 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
     deadline = _trim(dashboard.deadline)
     status = _trim(dashboard.status)
 
-    embed = discord.Embed(
-        title=f"🛰️ {dashboard.name} • Command Center",
+    embed = surface_embed(
+        "project",
+        title="Project Command Center",
         description=(
+            f"### {dashboard.name}\n"
             f"> {description}\n\n"
             f"{status_icon} **{status}**  ·  🧭 {phase}  ·  🏃 {sprint}"
         ),
@@ -355,7 +359,7 @@ def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
         value=f"{dashboard.task_total} tasks · {dashboard.bug_total} bugs",
         inline=True,
     )
-    embed.set_footer(text="CSE-HQ • Live project overview")
+    set_surface_footer(embed, "project", detail="Live overview")
     return embed
 
 def build_weekly_dashboard_embed(
@@ -364,9 +368,13 @@ def build_weekly_dashboard_embed(
 ) -> discord.Embed:
     embed = build_dashboard_embed(dashboard)
     description = _trim(dashboard.description, default="No project description yet.")
-    embed.title = f"📆 {dashboard.name} • Weekly Pulse"
-    embed.description = f"**{week_key}** · Team snapshot\n> {description}"
-    embed.set_footer(text=f"CSE-HQ • Weekly pulse • {week_key}")
+    embed.title = "📆 CSE-HQ • Weekly Pulse"
+    embed.description = (
+        f"### {dashboard.name} · {week_key}\n"
+        f"> {description}\n\n"
+        "Team snapshot for the current ISO week."
+    )
+    set_surface_footer(embed, "project", detail=f"Weekly Pulse • {week_key}")
     return embed
 
 
@@ -401,10 +409,10 @@ def build_tasks_embed(
 
 
 def build_task_detail_embed(task: dict, *, can_modify: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"Task #{task['id']} — {_truncate(task['title'], 120)}",
-        description=task["description"] or "No description.",
-        color=discord.Color.teal(),
+    embed = surface_embed(
+        "tasks",
+        title=f"TASK-{int(task['id']):03d}",
+        description=f"### {_truncate(task['title'], 120)}\n{task['description'] or 'No description.'}",
     )
     embed.add_field(name="Status", value=_status_badge(task["status"]), inline=True)
     embed.add_field(name="Priority", value=f"P{task['priority']}", inline=True)
@@ -460,9 +468,10 @@ def build_bugs_embed(
 
 
 def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"Bug #{bug['id']} — {_truncate(bug['title'], 120)}",
-        description=bug["description"] or "No description.",
+    embed = surface_embed(
+        "bugs",
+        title=f"BUG-{int(bug['id']):03d}",
+        description=f"### {_truncate(bug['title'], 120)}\n{bug['description'] or 'No description.'}",
         color=discord.Color.red(),
     )
     embed.add_field(name="Status", value=_status_badge(bug["status"]), inline=True)
@@ -524,10 +533,10 @@ def build_meeting_detail_embed(
     can_manage: bool,
     can_add_note: bool,
 ) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{_meeting_code(meeting)} — {_truncate(meeting['title'], 120)}",
-        description=meeting.get("description") or "No description.",
-        color=discord.Color.dark_teal(),
+    embed = surface_embed(
+        "meetings",
+        title=_meeting_code(meeting),
+        description=f"### {_truncate(meeting['title'], 120)}\n{meeting.get('description') or 'No description.'}",
     )
     embed.add_field(name="Status", value=_status_badge(meeting["status"]), inline=True)
     embed.add_field(
@@ -601,9 +610,13 @@ def build_decisions_embed(
 
 
 def build_decision_detail_embed(decision: dict, *, can_edit: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{_decision_code(decision)} — {_truncate(decision.get('title') or 'Untitled', 120)}",
-        description=decision.get("decision") or decision.get("summary") or "No decision text.",
+    embed = surface_embed(
+        "decisions",
+        title=_decision_code(decision),
+        description=(
+            f"### {_truncate(decision.get('title') or 'Untitled', 120)}\n"
+            f"{decision.get('decision') or decision.get('summary') or 'No decision text.'}"
+        ),
         color=discord.Color.gold(),
     )
     embed.add_field(name="Meeting", value=str(decision.get("meeting_id") or "Standalone"), inline=True)
