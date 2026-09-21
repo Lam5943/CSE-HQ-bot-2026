@@ -181,11 +181,11 @@ def test_build_weekly_dashboard_embed_is_public_snapshot():
         bug_open=1,
         meetings_total=2,
     )
-    embed = build_weekly_dashboard_embed(dashboard, "2026-W39")
+    embed = build_weekly_dashboard_embed(dashboard, 12)
     assert embed.title == "📆 CSE-HQ • Weekly Pulse"
-    assert "2026-W39" in (embed.description or "")
+    assert "Project Week 12" in (embed.description or "")
     assert "Team snapshot" in (embed.description or "")
-    assert embed.footer.text == "CSE-HQ • Project • Weekly Pulse • 2026-W39"
+    assert embed.footer.text == "CSE-HQ • Project • Weekly Pulse • Project Week 12"
 
 
 def test_build_tasks_and_bugs_embed_empty_states():

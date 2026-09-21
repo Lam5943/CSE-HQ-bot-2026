@@ -366,11 +366,11 @@ The stable command surface is:
 | `/standup` | All roles | Own daily submission plus permitted team/history views |
 | `/github` | All roles; sync restricted to Leader/CoLead | Read-only cached GitHub context |
 | `/weekly_report` | All roles | Current weekly progress report |
-| `/weekly_dashboard` | Leader/CoLead only | Publish the current ISO-week dashboard snapshot to the configured public channel |
+| `/weekly_dashboard` | Leader/CoLead only | Publish or refresh the configured project-week dashboard snapshot |
 | `/ai` | All roles | Private grounded AI sessions and confirmed proposals |
 | `/health` | Leader/CoLead only | Bounded operational diagnostics |
 | `/setup forums` | Leader/CoLead only | Persist Discord Forum mappings |
-| `/setup dashboard` | Leader/CoLead only | Configure the public dashboard channel, weekday, and local publish time |
+| `/setup dashboard` | Leader/CoLead only | Configure the public dashboard channel, project week, weekday, and local publish time |
 
 ### `/dashboard`
 
@@ -400,8 +400,8 @@ from drifting away from the underlying work.
 
 `/dashboard` remains a private realtime management surface. Public team visibility is handled separately:
 
-- `/setup dashboard` stores the target text channel and weekly schedule in SQLite. Defaults are Monday at 09:00 in `Asia/Ho_Chi_Minh`.
-- `/weekly_dashboard` lets a Leader/CoLead manually publish or refresh the current ISO-week snapshot. If the stored message still exists in the configured channel, CSE-HQ edits it in place; if it was deleted or the configured channel changed, CSE-HQ creates a replacement and updates the stored publication mapping.
+- `/setup dashboard` stores the target text channel, editable project-week number, and weekly schedule in SQLite. Defaults are Project Week 1 and Monday at 09:00 in `Asia/Ho_Chi_Minh`; omitting `project_week` on a later setup keeps the current value.
+- `/weekly_dashboard` lets a Leader/CoLead manually publish or refresh the configured project-week snapshot. Calendar ISO week is used only as the internal once-per-week publication key. If the stored message still exists in the configured channel, CSE-HQ edits it in place; if it was deleted or the configured channel changed, CSE-HQ creates a replacement and updates the stored publication mapping.
 - The long-running bot process checks the schedule once per minute and publishes the first due snapshot for the week.
 - If the bot is offline at the scheduled time, it catches up later in the same ISO week.
 - `dashboard_publications.week_key` remains unique so scheduled publishing stays idempotent; manual refresh updates the existing publication instead of creating uncontrolled duplicates.

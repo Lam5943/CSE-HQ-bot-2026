@@ -159,6 +159,7 @@ class CSEHQBot(commands.Bot):
                     actor_resolver=resolve_actor_from_interaction,
                     task_service=self.container.task_service,
                 )
+                view.task_select.sync_options(data)
                 await interaction.response.send_message(
                     embed=build_tasks_embed(
                         data,
@@ -353,12 +354,14 @@ class CSEHQBot(commands.Bot):
             channel="Text channel where weekly dashboards are published",
             weekday="Publish weekday in English, e.g. Monday",
             publish_time="24-hour local time in HH:MM format",
+            project_week="Project week number shown on the dashboard",
         )
         async def setup_dashboard(
             interaction: discord.Interaction,
             channel: discord.TextChannel,
             weekday: str = "monday",
             publish_time: str = "09:00",
+            project_week: int | None = None,
         ) -> None:
             actor = resolve_actor_from_interaction(interaction)
             try:
@@ -374,6 +377,7 @@ class CSEHQBot(commands.Bot):
                 settings = self.container.weekly_dashboard_service.configure(
                     actor,
                     channel_id=str(channel.id),
+                    project_week=project_week,
                     weekday=weekday,
                     publish_time=publish_time,
                 )
@@ -390,7 +394,8 @@ class CSEHQBot(commands.Bot):
                     (
                         f"Weekly dashboard configured for {channel.mention}: "
                         f"{weekday_name} at {settings['publish_time']} "
-                        f"({settings['timezone']})."
+                        f"({settings['timezone']}), showing Project Week "
+                        f"{settings['project_week']}."
                     ),
                     ephemeral=True,
                 )
@@ -532,7 +537,7 @@ class CSEHQBot(commands.Bot):
 
         embed = build_weekly_dashboard_embed(
             payload["dashboard"],
-            payload["week_key"],
+            payload["project_week"],
         )
         existing = payload.get("existing_publication")
         if replace_existing and existing is not None:

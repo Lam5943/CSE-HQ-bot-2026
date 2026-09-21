@@ -471,17 +471,17 @@ def build_dashboard_control_embed(
 
 def build_weekly_dashboard_embed(
     dashboard: ProjectDashboard,
-    week_key: str,
+    project_week: int,
 ) -> discord.Embed:
     embed = build_dashboard_embed(dashboard)
     description = _trim(dashboard.description, default="No project description yet.")
     embed.title = "📆 CSE-HQ • Weekly Pulse"
     embed.description = (
-        f"### {dashboard.name} · {week_key}\n"
+        f"### {dashboard.name} · Project Week {project_week}\n"
         f"> {description}\n\n"
-        "Team snapshot for the current ISO week."
+        "Team snapshot for the configured project week."
     )
-    set_surface_footer(embed, "project", detail=f"Weekly Pulse • {week_key}")
+    set_surface_footer(embed, "project", detail=f"Weekly Pulse • Project Week {project_week}")
     return embed
 
 
