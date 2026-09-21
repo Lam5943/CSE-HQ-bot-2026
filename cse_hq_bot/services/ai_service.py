@@ -163,8 +163,11 @@ class AIService:
         plan = self.retrieval_planner.plan(question)
         context_records = self._retrieve_records(actor, plan)
         web_intent = self.web_research_intent_detector.detect(question)
+        should_research_web = web_intent.explicit or (
+            web_intent.required and plan.strategy in {"search", "fallback_search"}
+        )
         web_records: list[RetrievedContextRecord] = []
-        if web_intent.required:
+        if should_research_web:
             if self.web_research_service is None or not self.web_research_service.configured:
                 return GroundedAnswer(
                     content=(
