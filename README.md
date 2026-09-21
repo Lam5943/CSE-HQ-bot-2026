@@ -10,7 +10,7 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Weekly progress reporting
 - Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
 - Grounded project Q&A through a pluggable AI provider
-- A private, grounded assistant with persistent sessions, bounded image understanding, and explicitly confirmed internal actions
+- A private, grounded assistant with persistent sessions, bounded image understanding, a provider-independent mentor personality, and explicitly confirmed internal actions
 - A fake AI provider for local development, Groq as the recommended free production primary, Gemini as an optional alternative, and optional OpenAI failover
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 - Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
@@ -439,6 +439,32 @@ The assistant is intentionally bounded and permission-aware:
 - AI Vision v1 is read-only: image-backed Task/Bug/Meeting/Decision/Standup mutations are rejected rather than inferred from pixels
 - Multimodal requests stay on the selected vision-capable primary provider; the text-only OpenAI fallback is not used for image requests
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
+
+### Personality Layer v1
+
+CSE-HQ owns its personality independently of Groq, Gemini, or any future model.
+The model is instructed to behave like an experienced engineering mentor and
+trusted teammate rather than a manager:
+
+- Diagnose situations without judging teammates.
+- Offer options, tradeoffs, scope cuts, and the smallest useful next step instead
+  of using pressure or manufactured urgency.
+- Never use deadlines, rankings, workload, or another member's progress to shame
+  or guilt a user.
+- Challenge weak assumptions and evaluate ideas before praising them.
+- Use light situational humor about bugs, CI, tools, and project weirdness, never
+  make a teammate the target of the joke.
+- Suppress humor for security incidents and serious failures; debugging stays calm
+  and surgical.
+- Protect sustainable pace during planning and acknowledge concrete progress
+  naturally when something is actually shipped or fixed.
+
+A deterministic response-posture classifier adjusts presentation for normal Q&A,
+brainstorming, debugging, incidents, planning, and celebration. This classifier
+changes style only; it does not change retrieval, permissions, provider routing,
+or AI Action authorization.
+
+**CSE-HQ remembers. The model reasons. The user decides.**
 
 ### AI Vision v1
 
