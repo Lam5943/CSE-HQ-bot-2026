@@ -60,6 +60,14 @@ class RateLimitError(Exception):
     status_code = 429
 
 
+class RateLimitErrorWithHeaders(Exception):
+    status_code = 429
+
+    def __init__(self, message: str, retry_after: str):
+        super().__init__(message)
+        self.response = SimpleNamespace(headers={"retry-after": retry_after})
+
+
 class APIConnectionError(Exception):
     pass
 
@@ -218,3 +226,22 @@ def test_groq_provider_requires_configuration(monkeypatch):
     monkeypatch.setattr(module, "AsyncOpenAI", None)
     with pytest.raises(AIConfigurationError, match="package"):
         GroqProvider("secret", "qwen/qwen3.8-27b")
+
+
+def test_groq_rate_limit_preserves_retry_after_header(monkeypatch):
+    provider, _, _ = _provider(
+        monkeypatch,
+        error=RateLimitErrorWithHeaders("limited", "2.5"),
+    )
+
+    with pytest.raises(AIRateLimitError) as exc_info:
+        asyncio.run(
+            provider.generate(
+                system_instruction="sys",
+                messages=[AIMessage(role="user", content="hi")],
+                context_records=[],
+                timeout_seconds=1,
+            )
+        )
+
+    assert exc_info.value.retry_after_seconds == 2.5
