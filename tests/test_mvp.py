@@ -87,6 +87,9 @@ def test_dashboard_and_project_permissions(services):
 
     with pytest.raises(PermissionDeniedError):
         services["project"].update_settings(member, "Nope", "Nope")
+    services["project"].ensure_can_manage(leader)
+    with pytest.raises(PermissionDeniedError):
+        services["project"].ensure_can_manage(member)
     with pytest.raises(PermissionDeniedError):
         services["project"].update_management(member, status="Blocked")
 
@@ -103,6 +106,10 @@ def test_task_and_bug_workflow_with_permissions(services):
         services["task"].update_task(member_b, task_id, status="done")
 
     services["task"].complete_task(leader, task_id)
+    dashboard = services["project"].get_dashboard()
+    assert dashboard.task_total == 1
+    assert dashboard.task_done == 1
+    assert dashboard.task_open == 0
 
     bug_id = services["bug"].report_bug(member_a, "bug", "desc", 3, assignee_id="a")
     services["bug"].update_bug(member_a, bug_id, status="triaged")
