@@ -1,4 +1,5 @@
 from cse_hq_bot.ai.base import (
+    AIImage,
     AIMessage,
     AIProvider,
     AIProviderResponse,
@@ -19,6 +20,7 @@ class FakeAIProvider(AIProvider):
         messages: list[AIMessage],
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
+        images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
         rendered_messages = "\n".join(
             f"{message.role}: {message.content}" for message in messages
@@ -35,7 +37,8 @@ class FakeAIProvider(AIProvider):
                 f"{self.canned_response}\n\n"
                 f"System Instruction:\n{system_instruction}\n\n"
                 f"Conversation:\n{rendered_messages}\n\n"
-                f"Context Records:\n{rendered_context}"
+                f"Context Records:\n{rendered_context}\n\n"
+                f"Image Attachments: {len(images or [])} (fake provider does not inspect pixels)"
             ),
             provider="fake",
             model="local-canned-response",
