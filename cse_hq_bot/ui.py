@@ -208,7 +208,7 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
         ),
         inline=False,
     )
-    set_surface_footer(embed, "ai", detail=f"Session #{session[\'id\']}")
+    set_surface_footer(embed, "ai", detail=f"Session #{session['id']}")
     return embed
 
 
@@ -442,7 +442,7 @@ def build_task_detail_embed(task: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
-    set_surface_footer(embed, "tasks", detail=f"TASK-{int(task[\'id\']):03d}")
+    set_surface_footer(embed, "tasks", detail=f"TASK-{int(task['id']):03d}")
     return embed
 
 
@@ -510,7 +510,7 @@ def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
-    set_surface_footer(embed, "bugs", detail=f"BUG-{int(bug[\'id\']):03d}")
+    set_surface_footer(embed, "bugs", detail=f"BUG-{int(bug['id']):03d}")
     return embed
 
 
