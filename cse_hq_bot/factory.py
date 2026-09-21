@@ -45,8 +45,8 @@ from cse_hq_bot.services.report_service import ReportService
 from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
-from cse_hq_bot.services.weekly_dashboard_service import WeeklyDashboardService
 from cse_hq_bot.services.web_research_service import TavilyWebResearchService
+from cse_hq_bot.services.weekly_dashboard_service import WeeklyDashboardService
 
 
 class ServiceContainer:
