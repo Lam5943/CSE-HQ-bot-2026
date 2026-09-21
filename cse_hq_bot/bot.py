@@ -112,6 +112,7 @@ class CSEHQBot(commands.Bot):
                     owner_id=interaction.user.id,
                     actor_resolver=resolve_actor_from_interaction,
                     project_service=self.container.project_service,
+                    task_service=self.container.task_service,
                 )
                 await interaction.response.send_message(
                     embed=build_dashboard_embed(data),
