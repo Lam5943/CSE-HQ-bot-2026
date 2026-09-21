@@ -23,6 +23,7 @@ class RetrievedContextRecord:
     content: str
     timestamp: str | None
     retrieval_reason: str
+    url: str | None = None
 
 
 @dataclass(frozen=True)
