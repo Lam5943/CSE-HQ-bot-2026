@@ -83,12 +83,13 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 | `AI_PROVIDER` | No | `fake` | `fake`, `groq`, or `gemini`. Groq is the recommended free production provider. |
 | `GROQ_API_KEY` | Required when `AI_PROVIDER=groq` | — | Groq API key. Never commit this value. |
 | `GROQ_MODEL` | No | `qwen/qwen3.8-27b` | Groq model used for text and vision when `AI_PROVIDER=groq`. |
+| `GROQ_MAX_OUTPUT_TOKENS` | No | `700` | Groq Responses API output cap, including reasoning tokens. Set below your organization's OTPM limit. |
 | `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name used only when `AI_PROVIDER=gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. |
 | `AI_MAX_CONTEXT_ITEMS` | No | `6` | Maximum bounded project records retrieved for one AI answer; the lower default reduces free-tier token pressure. |
 | `AI_MAX_HISTORY_MESSAGES` | No | `4` | Maximum persisted user/assistant messages loaded into one AI request. |
 | `AI_REQUEST_TIMEOUT` | No | `30` | Per-attempt request timeout in seconds. |
-| `AI_PRIMARY_RETRIES` | No | `1` | Retry count for transient rate-limit or provider-unavailable failures. Timeouts are not automatically retried. |
+| `AI_PRIMARY_RETRIES` | No | `1` | Retry count for transient rate-limit or provider-unavailable failures. Oversized OTPM requests and timeouts are not retried. |
 | `AI_FALLBACK_ENABLED` | No | `false` | Enable one OpenAI fallback attempt after an eligible primary-provider failure. Keep disabled to avoid paid fallback usage. |
 | `AI_FALLBACK_PROVIDER` | No | `openai` | Fallback provider name. AI Provider Failover v1 supports only `openai`. |
 | `OPENAI_API_KEY` | Required for fallback attempts | — | OpenAI API key. It is optional at startup and unused while fallback is disabled. |
@@ -124,6 +125,7 @@ WEB_RESEARCH_TIMEOUT=12
 AI_PROVIDER=fake
 GROQ_API_KEY=
 GROQ_MODEL=qwen/qwen3.8-27b
+GROQ_MAX_OUTPUT_TOKENS=700
 AI_MODEL=gemini-1.5-flash
 GEMINI_API_KEY=
 AI_MAX_CONTEXT_ITEMS=6
@@ -583,6 +585,9 @@ metadata and uses a bounded provider-aware backoff for configured primary retrie
 instead of retrying after a fixed one-second delay. Public/session error messages
 also adapt to the user's conversational register instead of exposing a stiff
 operational string.
+Groq requests set `max_output_tokens` from `GROQ_MAX_OUTPUT_TOKENS` (default 700).
+When Groq reports that a single request exceeds its OTPM cap, CSE-HQ logs the
+requested and allowed output tokens and skips retries of the same request.
 
 Public Vision follow-ups reuse the original screenshot only when the new question
 is visually grounded (for example, asking about text, an icon, color, or a region
@@ -699,6 +704,7 @@ Configure the server environment:
 AI_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=qwen/qwen3.8-27b
+GROQ_MAX_OUTPUT_TOKENS=700
 AI_MAX_CONTEXT_ITEMS=6
 AI_MAX_HISTORY_MESSAGES=4
 AI_REQUEST_TIMEOUT=30
@@ -715,6 +721,10 @@ CSE-HQ retries a normalized rate-limit or temporary provider-unavailable error a
 most `AI_PRIMARY_RETRIES` times. It does not automatically retry a timeout, so a
 slow provider cannot silently multiply the user's wait by another full timeout
 window.
+An OTPM rejection where the request alone exceeds the quota is never retried;
+reduce `GROQ_MAX_OUTPUT_TOKENS` if your organization's limit is lower than the
+configured cap. The default is suitable for the observed 1,000 OTPM limit but
+cannot prevent temporary 429s when team members use the shared quota at once.
 
 ## Configuring Google Gemini AI
 
@@ -782,7 +792,7 @@ AI_REQUEST_TIMEOUT=30
 AI_PRIMARY_RETRIES=1
 ```
 
-The primary provider retries normalized rate-limit or provider-unavailable failures up to `AI_PRIMARY_RETRIES`; timeouts are not retried. Optional fallback is attempted only after an eligible rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
+The primary provider retries transient rate-limit or provider-unavailable failures up to `AI_PRIMARY_RETRIES`; oversized OTPM requests and timeouts are not retried. Optional fallback is attempted only after an eligible rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
 
 Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, provider SDK retries are disabled where CSE-HQ owns retry behavior, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop successful primary-provider startup or requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
 
