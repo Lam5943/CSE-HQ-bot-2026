@@ -345,6 +345,60 @@ def test_router_disabled_propagates_eligible_primary_error():
     assert fallback.calls == []
 
 
+def test_router_retries_rate_limit_once_before_success():
+    primary = _RecordingProvider(error=AIRateLimitError("limited"))
+    router = AIProviderRouter(
+        primary,
+        None,
+        fallback_enabled=False,
+        primary_retry_count=1,
+        primary_retry_delay_seconds=0,
+    )
+
+    async def run():
+        original_generate = primary.generate
+        calls = 0
+
+        async def generate(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise AIRateLimitError("limited")
+            return AIProviderResponse(text="recovered", provider="groq")
+
+        primary.generate = generate
+        try:
+            return await router.generate(
+                system_instruction="sys",
+                messages=MESSAGES,
+                context_records=CONTEXT,
+                timeout_seconds=3,
+            )
+        finally:
+            primary.generate = original_generate
+
+    response = asyncio.run(run())
+    assert response.text == "recovered"
+    assert router.metrics["primary_retry"] == 1
+    assert router.metrics["primary_success"] == 1
+
+
+def test_router_does_not_retry_timeout():
+    primary = _RecordingProvider(error=AITimeoutError("slow"))
+    router = AIProviderRouter(
+        primary,
+        None,
+        fallback_enabled=False,
+        primary_retry_count=2,
+        primary_retry_delay_seconds=0,
+    )
+
+    with pytest.raises(AITimeoutError):
+        _run_router(router)
+    assert len(primary.calls) == 1
+    assert router.metrics["primary_retry"] == 0
+
+
 def test_router_dual_failure_is_controlled_and_never_loops():
     primary = _RecordingProvider(error=AITimeoutError("slow"))
     fallback = _RecordingProvider(error=AIRateLimitError("limited"))
@@ -379,6 +433,9 @@ def _config(**overrides):
         "ai_provider": "fake",
         "gemini_api_key": None,
         "ai_model": "gemini-model",
+        "groq_api_key": None,
+        "groq_model": "qwen/qwen3.8-27b",
+        "ai_primary_retries": 0,
         "ai_fallback_enabled": False,
         "ai_fallback_provider": "openai",
         "openai_api_key": None,
@@ -399,6 +456,16 @@ def test_factory_configuration_disabled_enabled_missing_and_invalid(monkeypatch)
     assert provider.__class__.__name__ == "FakeAIProvider"
 
     monkeypatch.setattr(module, "OpenAIProvider", OpenAIProvider)
+
+    groq = build_ai_provider(
+        _config(
+            ai_provider="groq",
+            groq_api_key="groq-placeholder",
+            ai_primary_retries=0,
+        )
+    )
+    assert groq.__class__.__name__ == "GroqProvider"
+
     router = build_ai_provider(_config(ai_fallback_enabled=True))
     assert isinstance(router, AIProviderRouter)
     assert router.fallback is None
@@ -408,9 +475,14 @@ def test_factory_configuration_disabled_enabled_missing_and_invalid(monkeypatch)
         build_ai_provider(
             _config(ai_fallback_enabled=True, ai_fallback_provider="unsupported")
         )
+    with pytest.raises(AIConfigurationError, match="primary provider"):
+        build_ai_provider(_config(ai_provider="unsupported"))
 
 
 def test_load_config_reads_fallback_settings(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "groq-placeholder")
+    monkeypatch.setenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setenv("AI_PRIMARY_RETRIES", "1")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
     monkeypatch.setenv("AI_FALLBACK_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "placeholder")
@@ -418,6 +490,9 @@ def test_load_config_reads_fallback_settings(monkeypatch):
 
     config = load_config()
 
+    assert config.groq_api_key == "groq-placeholder"
+    assert config.groq_model == "qwen/qwen3.8-27b"
+    assert config.ai_primary_retries == 1
     assert config.ai_fallback_enabled is True
     assert config.ai_fallback_provider == "openai"
     assert config.openai_api_key == "placeholder"

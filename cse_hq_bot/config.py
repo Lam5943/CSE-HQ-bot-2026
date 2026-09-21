@@ -12,10 +12,13 @@ class Config:
     ai_enable_message_content: bool
     gemini_api_key: str | None
     ai_model: str
+    groq_api_key: str | None
+    groq_model: str
     ai_provider: str
     ai_max_context_items: int
     ai_max_history_messages: int
     ai_request_timeout: int
+    ai_primary_retries: int
     ai_fallback_enabled: bool
     ai_fallback_provider: str
     openai_api_key: str | None
@@ -48,10 +51,13 @@ def load_config() -> Config:
         in {"1", "true", "yes", "on"},
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         ai_model=os.getenv("AI_MODEL", "gemini-1.5-flash"),
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        groq_model=os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b"),
         ai_provider=os.getenv("AI_PROVIDER", "fake").lower(),
-        ai_max_context_items=max(1, int(os.getenv("AI_MAX_CONTEXT_ITEMS", "12"))),
-        ai_max_history_messages=max(1, int(os.getenv("AI_MAX_HISTORY_MESSAGES", "8"))),
-        ai_request_timeout=max(1, int(os.getenv("AI_REQUEST_TIMEOUT", "20"))),
+        ai_max_context_items=max(1, int(os.getenv("AI_MAX_CONTEXT_ITEMS", "6"))),
+        ai_max_history_messages=max(1, int(os.getenv("AI_MAX_HISTORY_MESSAGES", "4"))),
+        ai_request_timeout=max(1, int(os.getenv("AI_REQUEST_TIMEOUT", "30"))),
+        ai_primary_retries=max(0, min(2, int(os.getenv("AI_PRIMARY_RETRIES", "1")))),
         ai_fallback_enabled=os.getenv("AI_FALLBACK_ENABLED", "false").lower()
         in {"1", "true", "yes", "on"},
         ai_fallback_provider=os.getenv("AI_FALLBACK_PROVIDER", "openai").lower(),

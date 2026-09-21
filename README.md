@@ -11,7 +11,7 @@ CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 - Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
 - Grounded project Q&A through a pluggable AI provider
 - A private, grounded assistant with persistent sessions, bounded image understanding, and explicitly confirmed internal actions
-- A fake AI provider for local development, Gemini as the production primary, and optional OpenAI failover
+- A fake AI provider for local development, Groq as the recommended free production primary, Gemini as an optional alternative, and optional OpenAI failover
 - Idempotent Discord Forum publishing for bugs, pull requests, releases, and verified GitHub webhook events
 - Automatic pull-request validation with offline tests, quality gates, dependency auditing, secret-signature checks, and CodeQL
 
@@ -22,8 +22,9 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 - Python 3.11 or newer (CI validates Python 3.12)
 - A Discord application and bot token
 - A server or local machine that can run a long-lived Python process
-- Optional: a Google Gemini API key for Gemini-powered project Q&A and the private `/ai` assistant
-- Optional: an OpenAI API key and configured model when AI provider failover is enabled
+- Optional: a Groq API key for the recommended free production AI path
+- Optional: a Google Gemini API key when Gemini is selected instead
+- Optional: an OpenAI API key and configured model when paid fallback is explicitly enabled
 
 ## Local Setup
 
@@ -61,7 +62,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
    cp .env.example .env
    ```
 
-5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` unless Gemini is configured. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal.
+5. Edit `.env` and set at least `DISCORD_TOKEN`. Keep `AI_PROVIDER=fake` for local development; use `AI_PROVIDER=groq` with a Groq key for the recommended free production path, or `AI_PROVIDER=gemini` if Gemini is intentionally selected. If you want natural AI session chat in Discord threads, set `AI_ENABLE_MESSAGE_CONTENT=true` and also enable the Message Content intent for the bot in the Discord Developer Portal.
 
 ## Environment Variables
 
@@ -71,13 +72,16 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the stable release summary.
 | `DATABASE_PATH` | No | `./cse_hq.db` | Path to the SQLite database file. |
 | `LOG_LEVEL` | No | `INFO` | Python logging level, such as `DEBUG`, `INFO`, or `WARNING`. |
 | `AI_ENABLE_MESSAGE_CONTENT` | No | `false` | Enable Discord message-content intent for natural `/ai` thread chat. When disabled, AI threads return one concise configuration hint per user instead of failing silently. |
-| `AI_PROVIDER` | No | `fake` | Set to `fake` for local development or `gemini` to use Gemini. |
-| `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name passed to the provider when `AI_PROVIDER=gemini`. |
-| `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. The app fails fast with a configuration error if this is missing. |
-| `AI_MAX_CONTEXT_ITEMS` | No | `12` | Maximum bounded project records retrieved for one AI answer. |
-| `AI_MAX_HISTORY_MESSAGES` | No | `8` | Maximum persisted user/assistant messages loaded into one AI request. |
-| `AI_REQUEST_TIMEOUT` | No | `20` | Per-attempt request timeout in seconds. Failover may use one primary attempt plus one fallback attempt. |
-| `AI_FALLBACK_ENABLED` | No | `false` | Enable one OpenAI fallback attempt after an eligible Gemini availability failure. |
+| `AI_PROVIDER` | No | `fake` | `fake`, `groq`, or `gemini`. Groq is the recommended free production provider. |
+| `GROQ_API_KEY` | Required when `AI_PROVIDER=groq` | — | Groq API key. Never commit this value. |
+| `GROQ_MODEL` | No | `qwen/qwen3.8-27b` | Groq model used for text and vision when `AI_PROVIDER=groq`. |
+| `AI_MODEL` | No | `gemini-1.5-flash` | Gemini model name used only when `AI_PROVIDER=gemini`. |
+| `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini` | — | Google Gemini API key. |
+| `AI_MAX_CONTEXT_ITEMS` | No | `6` | Maximum bounded project records retrieved for one AI answer; the lower default reduces free-tier token pressure. |
+| `AI_MAX_HISTORY_MESSAGES` | No | `4` | Maximum persisted user/assistant messages loaded into one AI request. |
+| `AI_REQUEST_TIMEOUT` | No | `30` | Per-attempt request timeout in seconds. |
+| `AI_PRIMARY_RETRIES` | No | `1` | Retry count for transient rate-limit or provider-unavailable failures. Timeouts are not automatically retried. |
+| `AI_FALLBACK_ENABLED` | No | `false` | Enable one OpenAI fallback attempt after an eligible primary-provider failure. Keep disabled to avoid paid fallback usage. |
 | `AI_FALLBACK_PROVIDER` | No | `openai` | Fallback provider name. AI Provider Failover v1 supports only `openai`. |
 | `OPENAI_API_KEY` | Required for fallback attempts | — | OpenAI API key. It is optional at startup and unused while fallback is disabled. |
 | `OPENAI_MODEL` | Required for fallback attempts | — | Deployment-selected OpenAI model; no OpenAI model is hardcoded. |
@@ -104,11 +108,15 @@ DATABASE_PATH=./cse_hq.db
 LOG_LEVEL=INFO
 AI_ENABLE_MESSAGE_CONTENT=false
 AI_PROVIDER=fake
+GROQ_API_KEY=
+GROQ_MODEL=qwen/qwen3.8-27b
 AI_MODEL=gemini-1.5-flash
 GEMINI_API_KEY=
-AI_MAX_CONTEXT_ITEMS=12
-AI_MAX_HISTORY_MESSAGES=8
-AI_REQUEST_TIMEOUT=20
+AI_MAX_CONTEXT_ITEMS=6
+AI_MAX_HISTORY_MESSAGES=4
+AI_REQUEST_TIMEOUT=30
+AI_PRIMARY_RETRIES=1
+AI_FALLBACK_ENABLED=false
 AI_ACTION_EXPIRATION_SECONDS=600
 GITHUB_WEBHOOK_ENABLED=false
 GITHUB_WEBHOOK_SECRET=
@@ -159,7 +167,7 @@ or process manager. Before deployment, confirm:
   is enabled with `AI_ENABLE_MESSAGE_CONTENT=true`.
 - `DATABASE_PATH` points to backed-up persistent storage. Run one CSE-HQ process
   against a SQLite database; multi-process SQLite deployment is not tested.
-- Gemini/OpenAI credentials and model names are present only for providers you
+- Groq/Gemini/OpenAI credentials and model names are present only for providers you
   enable. GitHub uses a read-only fine-grained token or GitHub App installation
   token with metadata, issues, pull requests, commits, checks, and branch reads.
 - If webhooks are enabled, the configured `WEBHOOK_PORT` and
@@ -292,8 +300,9 @@ ProjectContextService
 PromptBuilder
   ↓
 AIProviderRouter
-  ├── Gemini
-  └── OpenAI fallback
+  ├── Groq (recommended free primary)
+  ├── Gemini (optional primary)
+  └── OpenAI fallback (optional, disabled by default)
 ```
 
 ```text
@@ -414,8 +423,8 @@ Opens the private AI assistant home panel with:
 - **My Sessions** to list your persisted AI sessions
 - Natural thread conversation for authorized session owners only
 - Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
-- Native Gemini image understanding for PNG, JPEG, and WEBP attachments in private AI threads
-- Up to 4 images per message, 8 MB per image, and 12 MB total inline image bytes per request
+- Native multimodal image understanding through Groq or Gemini for PNG, JPEG, and WEBP attachments in private AI threads
+- Up to 3 images per message, 8 MB per image, and 12 MB total inline image bytes per request
 - Image bytes are transient request data; SQLite stores only attachment filename/media-type metadata in conversation history
 
 The assistant is intentionally bounded and permission-aware:
@@ -428,20 +437,20 @@ The assistant is intentionally bounded and permission-aware:
 - Only the current user's standup may be submitted or updated; other-user and team-wide standup writes are rejected
 - GitHub, repository, deletion, batch, autonomous, and multi-step actions remain unavailable
 - AI Vision v1 is read-only: image-backed Task/Bug/Meeting/Decision/Standup mutations are rejected rather than inferred from pixels
-- Multimodal requests stay on the Gemini primary provider; the text-only OpenAI fallback is not used for image requests
+- Multimodal requests stay on the selected vision-capable primary provider; the text-only OpenAI fallback is not used for image requests
 - Prior AI replies are continuity only; fresh project retrieval wins on every request
 
 ### AI Vision v1
 
 Private AI session messages may include Discord image attachments. CSE-HQ validates
-and reads supported images transiently, then passes their bytes directly to Gemini
-as multimodal input. Supported formats are PNG, JPEG, and WEBP.
+and reads supported images transiently, then passes them to the selected vision-capable
+primary provider as multimodal input. Supported formats are PNG, JPEG, and WEBP.
 
 Vision input is deliberately bounded:
 
-- Maximum 4 images per message
+- Maximum 3 images per message
 - Maximum 8 MB per image
-- Maximum 12 MB total image bytes per request, leaving headroom below Gemini's inline-request limit
+- Maximum 12 MB total image bytes per request, leaving headroom below provider inline-request limits
 - Attachment bytes are validated against PNG/JPEG/WEBP file signatures
 - Downloads use a bounded timeout and are never written to the project filesystem
 - Raw image bytes are never persisted in SQLite
@@ -467,13 +476,13 @@ GitHub v1 never creates, edits, closes, merges, comments, reviews, triggers work
 ### `/health`
 
 Shows a private, bounded operational snapshot for Leaders and Co-Leads. It
-reports the Discord connection, SQLite connectivity, Gemini and OpenAI fallback
+reports the Discord connection, SQLite connectivity, Groq, Gemini, and OpenAI fallback
 configuration/runtime state, GitHub cache sync, webhook listener and latest
 delivery, and the three Forum mappings. It also includes the installed
 application version.
 
 `/health` uses local process and SQLite state only. It does not make live calls
-to Discord, Gemini, OpenAI, or GitHub, and it never displays tokens, secrets,
+to Discord, Groq, Gemini, OpenAI, or GitHub, and it never displays tokens, secrets,
 model names, database paths, webhook payloads, repository identifiers, or Discord
 channel IDs.
 
@@ -502,6 +511,35 @@ standup, activity, reporting, grounded Q&A, GitHub cache, Forum publishing, and
 health operations. Role checks are enforced in the service layer rather than
 relying only on Discord channel visibility.
 
+## Configuring Groq AI (recommended free production path)
+
+Groq is the recommended production provider when you want to keep CSE-HQ inside
+a free API allowance. The integration uses Groq's OpenAI-compatible Responses API
+through the existing `openai` Python dependency, so no extra Groq SDK is required.
+
+Configure the server environment:
+
+```dotenv
+AI_PROVIDER=groq
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=qwen/qwen3.8-27b
+AI_MAX_CONTEXT_ITEMS=6
+AI_MAX_HISTORY_MESSAGES=4
+AI_REQUEST_TIMEOUT=30
+AI_PRIMARY_RETRIES=1
+AI_FALLBACK_ENABLED=false
+```
+
+`qwen/qwen3.8-27b` supports text and image inputs. CSE-HQ keeps image requests
+bounded to three attachments so they remain within the provider's documented
+vision request shape. To avoid accidental paid usage, the recommended deployment
+keeps `AI_FALLBACK_ENABLED=false`.
+
+CSE-HQ retries a normalized rate-limit or temporary provider-unavailable error at
+most `AI_PRIMARY_RETRIES` times. It does not automatically retry a timeout, so a
+slow provider cannot silently multiply the user's wait by another full timeout
+window.
+
 ## Configuring Google Gemini AI
 
 Gemini is optional. The bot uses the fake provider by default, so the application can run without an external AI service.
@@ -518,7 +556,8 @@ Update `.env` on a local machine or `/etc/cse-hq-bot.env` on a server:
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
 AI_MODEL=gemini-1.5-flash
-AI_REQUEST_TIMEOUT=20
+AI_REQUEST_TIMEOUT=30
+AI_PRIMARY_RETRIES=1
 AI_FALLBACK_ENABLED=false
 AI_FALLBACK_PROVIDER=openai
 OPENAI_API_KEY=
@@ -543,7 +582,7 @@ sudo systemctl restart cse-hq-bot.service
 sudo journalctl -u cse-hq-bot.service -n 100 --no-pager
 ```
 
-The Q&A service builds bounded, permission-aware context from CSE-HQ records and, when enabled, the normalized GitHub cache. The same rendered prompt package is sent to either provider. It instructs the model to treat records as untrusted data, state when evidence is insufficient, preserve source IDs, and never claim to modify project or GitHub records.
+The Q&A service builds bounded, permission-aware context from CSE-HQ records and, when enabled, the normalized GitHub cache. The same rendered prompt package is sent to the selected provider. It instructs the model to treat records as untrusted data, state when evidence is insufficient, preserve source IDs, and never claim to modify project or GitHub records.
 
 If Gemini initialization fails, verify all of the following:
 
@@ -563,12 +602,13 @@ AI_FALLBACK_ENABLED=true
 AI_FALLBACK_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=your_configured_openai_model
-AI_REQUEST_TIMEOUT=20
+AI_REQUEST_TIMEOUT=30
+AI_PRIMARY_RETRIES=1
 ```
 
-Fallback is attempted only after a normalized rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
+The primary provider retries normalized rate-limit or provider-unavailable failures up to `AI_PRIMARY_RETRIES`; timeouts are not retried. Optional fallback is attempted only after an eligible rate-limit, timeout, temporary connection, or provider-unavailable failure. Configuration errors, malformed provider responses, permission/session failures, retrieval failures, and other application errors do not trigger fallback. The same system instructions, bounded context, conversation history, and question are reused; retrieval and citation validation run only once.
 
-Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, SDK retries are disabled for the OpenAI fallback, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop Gemini startup or successful Gemini requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
+Each provider attempt is limited by `AI_REQUEST_TIMEOUT`, provider SDK retries are disabled where CSE-HQ owns retry behavior, and at most one fallback call is made. Therefore the worst-case provider time may approach two timeout windows. Missing OpenAI credentials do not stop successful primary-provider startup or requests, but an actual fallback attempt returns a controlled configuration error. Failover improves resilience but does not guarantee availability.
 
 ## AI Actions v2.1
 
@@ -582,7 +622,7 @@ Supported actions are:
 - Decisions: create and edit
 - Standups: submit or update the requesting user's standup for the current day
 
-Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Gemini or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls the existing domain service. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
+Every proposal is limited to one action, expires after `AI_ACTION_EXPIRATION_SECONDS`, and is bound to its private AI session and requesting actor. Confirmation does not call Groq, Gemini, or OpenAI again. Instead, CSE-HQ atomically claims the pending proposal, re-fetches the target, rechecks session state, ownership, permissions, and lifecycle state, then calls the existing domain service. Repeated or simultaneous confirmation cannot execute the same proposal twice. Successful mutations use the existing domain activity logging; cancelled, expired, stale, and failed proposals do not report false success.
 
 Closing a session marks its pending proposals failed and non-executable. Expiration is enforced from the persisted timestamp at confirmation time (including the exact expiry boundary), independently of Discord's View timeout. State or permission drift makes the claimed proposal fail rather than returning it to `PENDING`.
 
@@ -610,7 +650,7 @@ GITHUB_CACHE_TTL=300
 GITHUB_MAX_RESULTS=30
 ```
 
-Run `/github`, then use **Sync** as a Leader or Co-Lead. Normal browsing and Gemini retrieval use SQLite-cached normalized records; they do not call GitHub on every interaction. A failed refresh records stale status while preserving the last successful snapshot. Never commit `GITHUB_TOKEN` or log authorization headers.
+Run `/github`, then use **Sync** as a Leader or Co-Lead. Normal browsing and AI retrieval use SQLite-cached normalized records; they do not call GitHub on every interaction. A failed refresh records stale status while preserving the last successful snapshot. Never commit `GITHUB_TOKEN` or log authorization headers.
 
 ## Discord Forum Publishing and GitHub Webhooks
 
@@ -678,7 +718,7 @@ For first-line troubleshooting:
 - SQLite is the only database and the supported deployment is a single bot
   process with persistent local storage.
 - AI answers are bounded by retrieved records and provider availability; failover
-  is one OpenAI attempt after eligible Gemini availability failures, not a general
+  is one optional OpenAI attempt after eligible selected-primary failures, not a general
   provider pool.
 - Discord Views attached to pending AI proposals are not restored after restart.
   Persisted proposals never execute automatically; create a fresh proposal if the
@@ -706,7 +746,7 @@ python tools/check_secret_signatures.py
 ```
 
 The `CI` workflow runs these gates for every pull request and every push to
-`main`, using Python 3.12 and no live Discord, GitHub, Gemini, OpenAI, or webhook
+`main`, using Python 3.12 and no live Discord, GitHub, Groq, Gemini, OpenAI, or webhook
 credentials. Superseded runs for the same pull request or branch are cancelled.
 The dependency cache is optional and contains no environment files, credentials,
 databases, or runtime state.
@@ -742,7 +782,7 @@ an administrator setting and is not modified by these workflows.
 - Meaningful task, bug, meeting, decision, and standup mutations append immutable activity records after the primary write succeeds.
 - `ProjectContextService` provides permission-aware, structured project reads for reporting and grounded retrieval without bypassing domain services.
 - The fake AI provider is the recommended default for development and automated tests.
-- Keep `.env`, Discord tokens, Gemini/OpenAI API keys, and production database backups out of version control.
+- Keep `.env`, Discord tokens, Groq/Gemini/OpenAI API keys, and production database backups out of version control.
 
 ## License
 

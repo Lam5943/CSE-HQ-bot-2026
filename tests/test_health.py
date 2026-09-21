@@ -51,6 +51,8 @@ def make_config(**overrides):
         "ai_provider": "gemini",
         "gemini_api_key": "gemini-super-secret",
         "ai_model": "private-model-name",
+        "groq_api_key": "groq-super-secret",
+        "groq_model": "private-groq-model",
         "ai_fallback_enabled": True,
         "ai_fallback_provider": "openai",
         "openai_api_key": "openai-super-secret",
@@ -126,7 +128,12 @@ def test_health_all_components_healthy(tmp_path: Path):
     )
 
     assert report.overall == HealthState.HEALTHY
-    assert all(item.state == HealthState.HEALTHY for item in report.components)
+    assert component(report, "groq").state == HealthState.DISABLED
+    assert all(
+        item.state == HealthState.HEALTHY
+        for item in report.components
+        if item.key != "groq"
+    )
     assert report.version == "1.2.3"
     assert "last sync" in component(report, "github").detail
     assert "latest delivery processed" in component(report, "webhook").detail
@@ -149,10 +156,33 @@ def test_optional_components_disabled_do_not_degrade_health(tmp_path: Path):
     )
 
     assert report.overall == HealthState.HEALTHY
+    assert component(report, "groq").state == HealthState.DISABLED
     assert component(report, "gemini").state == HealthState.DISABLED
     assert component(report, "openai_fallback").state == HealthState.DISABLED
     assert component(report, "github").state == HealthState.DISABLED
     assert component(report, "webhook").state == HealthState.DISABLED
+
+
+def test_groq_primary_health_uses_runtime_state(tmp_path: Path):
+    service, _ = make_health_service(
+        tmp_path,
+        config=make_config(
+            ai_provider="groq",
+            ai_fallback_enabled=False,
+        ),
+        ai_snapshot={
+            "primary_result": "success",
+            "primary_error_category": None,
+        },
+    )
+
+    report = service.get_report(
+        Actor("leader", Role.LEADER), discord_ready=True
+    )
+
+    assert component(report, "groq").state == HealthState.HEALTHY
+    assert component(report, "gemini").state == HealthState.DISABLED
+    assert report.overall == HealthState.HEALTHY
 
 
 def test_failed_ai_primary_with_configured_fallback_is_degraded(tmp_path: Path):
@@ -183,8 +213,9 @@ def test_database_failure_isolated_and_marks_overall_failed(tmp_path: Path):
 
     assert report.overall == HealthState.FAILED
     assert component(report, "database").state == HealthState.FAILED
+    assert component(report, "groq").state == HealthState.DISABLED
     assert component(report, "gemini").state == HealthState.HEALTHY
-    assert len(report.components) == 9
+    assert len(report.components) == 10
 
 
 def test_github_failure_isolated_and_reported(tmp_path: Path):
@@ -259,10 +290,12 @@ def test_health_report_and_embed_do_not_leak_configuration(tmp_path: Path):
 
     for secret in (
         "gemini-super-secret",
+        "groq-super-secret",
         "openai-super-secret",
         "github-super-secret",
         "webhook-super-secret",
         "private-model-name",
+        "private-groq-model",
         "private-fallback-model",
         "private-database-path.db",
         "111111",

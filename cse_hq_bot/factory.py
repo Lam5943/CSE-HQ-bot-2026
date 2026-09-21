@@ -1,5 +1,6 @@
 from cse_hq_bot.ai.fake_provider import FakeAIProvider
 from cse_hq_bot.ai.gemini_provider import GeminiProvider
+from cse_hq_bot.ai.groq_provider import GroqProvider
 from cse_hq_bot.ai.openai_provider import OpenAIProvider
 from cse_hq_bot.ai.provider_router import AIProviderRouter
 from cse_hq_bot.config import Config
@@ -199,29 +200,38 @@ class ServiceContainer:
 
 
 def build_ai_provider(config: Config):
-    primary = (
-        GeminiProvider(config.gemini_api_key, config.ai_model)
-        if config.ai_provider == "gemini"
-        else FakeAIProvider()
-    )
-    if not config.ai_fallback_enabled:
-        return primary
-    if config.ai_fallback_provider != "openai":
+    if config.ai_provider == "groq":
+        primary = GroqProvider(config.groq_api_key, config.groq_model)
+    elif config.ai_provider == "gemini":
+        primary = GeminiProvider(config.gemini_api_key, config.ai_model)
+    elif config.ai_provider == "fake":
+        primary = FakeAIProvider()
+    else:
         raise AIConfigurationError(
-            f"Unsupported AI fallback provider: {config.ai_fallback_provider}"
+            f"Unsupported AI primary provider: {config.ai_provider}"
         )
 
     fallback = None
     fallback_configuration_error = None
-    try:
-        fallback = OpenAIProvider(config.openai_api_key, config.openai_model)
-    except AIConfigurationError as exc:
-        fallback_configuration_error = exc
+    if config.ai_fallback_enabled:
+        if config.ai_fallback_provider != "openai":
+            raise AIConfigurationError(
+                f"Unsupported AI fallback provider: {config.ai_fallback_provider}"
+            )
+        try:
+            fallback = OpenAIProvider(config.openai_api_key, config.openai_model)
+        except AIConfigurationError as exc:
+            fallback_configuration_error = exc
+
+    if not config.ai_fallback_enabled and config.ai_primary_retries == 0:
+        return primary
+
     return AIProviderRouter(
         primary,
         fallback,
-        fallback_enabled=True,
+        fallback_enabled=config.ai_fallback_enabled,
         primary_name=config.ai_provider,
         fallback_name=config.ai_fallback_provider,
         fallback_configuration_error=fallback_configuration_error,
+        primary_retry_count=config.ai_primary_retries,
     )
