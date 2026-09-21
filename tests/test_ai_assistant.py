@@ -7,7 +7,7 @@ import pytest
 from cse_hq_bot.ai.base import AIMessage, AIProviderResponse, RetrievedContextRecord
 from cse_hq_bot.ai.gemini_provider import GeminiProvider
 from cse_hq_bot.ai.provider_router import AIProviderRouter
-from cse_hq_bot.bot import CSEHQBot
+from cse_hq_bot.bot import CSEHQBot, build_ai_session_thread_name
 from cse_hq_bot.db import Database
 from cse_hq_bot.errors import (
     AIConfigurationError,
@@ -41,6 +41,20 @@ from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 from cse_hq_bot.services.standup_service import StandupService
 from cse_hq_bot.services.task_service import TaskService
+
+
+def test_ai_session_thread_name_is_human_friendly_and_bounded():
+    assert build_ai_session_thread_name("Alice", 1) == "session của Alice #1"
+    assert build_ai_session_thread_name("  Alice   Nguyen  ", 12) == (
+        "session của Alice Nguyen #12"
+    )
+    long_name = "A" * 200
+    rendered = build_ai_session_thread_name(long_name, 3)
+    assert rendered.startswith("session của ")
+    assert rendered.endswith(" #3")
+    assert len(rendered) <= 80
+
+
 
 
 class RecordingProvider:
