@@ -52,11 +52,17 @@ def test_build_dashboard_embed_contains_management_fields():
         meetings_total=2,
     )
     embed = build_dashboard_embed(dashboard)
-    assert embed.title == "Alpha Dashboard"
+    assert embed.title == "📊 Alpha • Project Dashboard"
+    assert embed.description == "> Project summary"
     field_values = {field.name: field.value for field in embed.fields}
-    assert field_values["Goal"] == "Ship MVP"
-    assert field_values["Status"] == "On Track"
-    assert field_values["Open Tasks"] == "4"
+    assert field_values["🎯 Goal"] == "Ship MVP"
+    assert "On Track" in field_values["📌 Status"]
+    assert "60%" in field_values["✅ Task Progress"]
+    assert "6/10" in field_values["✅ Task Progress"]
+    assert "4" in field_values["✅ Task Progress"]
+    assert field_values["🐞 Bugs"] == "**1** open • 3 total"
+    assert embed.footer.text == "CSE-HQ • Project data updated"
+    assert embed.timestamp == dashboard.updated_at
 
 
 def test_build_weekly_dashboard_embed_is_public_snapshot():
@@ -77,9 +83,10 @@ def test_build_weekly_dashboard_embed_is_public_snapshot():
         meetings_total=2,
     )
     embed = build_weekly_dashboard_embed(dashboard, "2026-W39")
-    assert embed.title == "Alpha Weekly Dashboard"
+    assert embed.title == "📆 Alpha • Weekly Snapshot"
     assert "2026-W39" in (embed.description or "")
-    assert embed.footer.text.startswith("Weekly snapshot")
+    assert "Team snapshot" in (embed.description or "")
+    assert embed.footer.text == "CSE-HQ • Weekly snapshot • 2026-W39"
 
 
 def test_build_tasks_and_bugs_embed_empty_states():
@@ -217,7 +224,8 @@ def test_build_ai_home_and_sessions_embeds_and_chunking():
     chunks = split_ai_response("Paragraph one.\n\nParagraph two with TASK-001 and details." * 40, limit=120)
     assert home.title == "CSE-HQ AI Assistant"
     assert "Read-only" in home.fields[1].value
-    assert "thread `123`" in (sessions.description or "")
+    assert "<#123>" in (sessions.description or "")
+    assert "thread `123`" not in (sessions.description or "")
     assert all(len(chunk) <= 120 for chunk in chunks)
     assert any("TASK-001" in chunk for chunk in chunks)
 

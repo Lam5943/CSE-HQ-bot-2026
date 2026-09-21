@@ -19,6 +19,14 @@ class AISessionRepository:
             )
             return int(cur.lastrowid)
 
+    def count_sessions_for_owner(self, owner_id: str) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM ai_sessions WHERE owner_id = ?",
+                (owner_id,),
+            ).fetchone()
+        return int(row["count"])
+
     def list_sessions_for_owner(self, owner_id: str) -> list[dict]:
         with self.db.connect() as conn:
             rows = conn.execute(

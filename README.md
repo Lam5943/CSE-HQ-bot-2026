@@ -356,8 +356,8 @@ The stable command surface is:
 
 Opens a private interactive dashboard Embed with:
 
-- Project overview (name, description, goal, phase, sprint, deadline, status)
-- Task and bug summary metrics
+- Project overview with status-aware color, goal, phase, sprint, deadline, and Discord timestamp
+- Visual task progress bar plus open/completed counts, bug health, and meeting snapshot
 - Refresh button to reload the latest project data
 - **Manage Dashboard** button (Leader/Co-Lead only through service-layer permissions) to update project management fields
 
@@ -370,7 +370,7 @@ Opens a private interactive dashboard Embed with:
 - The long-running bot process checks the schedule once per minute and publishes the first due snapshot for the week.
 - If the bot is offline at the scheduled time, it catches up later in the same ISO week.
 - `dashboard_publications.week_key` is unique, so one bot process cannot intentionally publish the same week twice.
-- Public snapshots contain no management controls; project mutations remain behind the existing private command/service permission boundaries.
+- Public snapshots use the same polished status/progress presentation without management controls; project mutations remain behind the existing private command/service permission boundaries.
 
 ### `/tasks`
 
@@ -419,8 +419,8 @@ Opens the private AI assistant home panel with:
 
 - Grounded Q&A for tasks, bugs, meetings, decisions, standups, GitHub context, and recent activity
 - Human-confirmed proposals for one supported Task, Bug, Meeting, Decision, or own Standup mutation at a time
-- **New Session** to create a private Discord thread-backed AI session
-- **My Sessions** to list your persisted AI sessions
+- **New Session** to create a private Discord thread-backed AI session named `session của <display name> #<number>`, numbered independently for each user
+- **My Sessions** to list persisted sessions as clickable Discord thread mentions instead of raw thread IDs
 - Natural thread conversation for authorized session owners only
 - Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
 - Native multimodal image understanding through Groq or Gemini for PNG, JPEG, and WEBP attachments in private AI threads

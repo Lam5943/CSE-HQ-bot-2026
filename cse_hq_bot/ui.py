@@ -168,14 +168,21 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
         embed.description = "No AI sessions found."
         return embed
     embed.description = "\n".join(
-        f"`#{session['id']}` {session['status']} • thread `{session['discord_thread_id']}` • last active {session['last_active_at']}"
+        (
+            f"<#{session['discord_thread_id']}> • "
+            f"**{str(session['status']).replace('_', ' ').title()}** • "
+            f"last active {session['last_active_at']}"
+        )
         for session in sessions[:10]
     )
     return embed
 
 
 def build_ai_session_intro_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(title=f"AI Session #{session['id']}", color=discord.Color.dark_teal())
+    embed = discord.Embed(
+        title="🤖 CSE-HQ • Private AI Session",
+        color=discord.Color.dark_teal(),
+    )
     embed.description = (
         "Ask project questions, attach PNG/JPEG/WEBP screenshots for read-only "
         "analysis, or propose one supported internal action. The assistant is private, "
@@ -273,22 +280,78 @@ def _decision_code(decision: dict) -> str:
     return str(decision.get("code") or f"DEC-{int(decision['id']):03d}")
 
 
-def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{dashboard.name} Dashboard",
-        description=dashboard.description,
-        color=discord.Color.blurple(),
+def _dashboard_status_style(status: str) -> tuple[str, discord.Color]:
+    normalized = " ".join(status.strip().lower().replace("_", " ").split())
+    if any(
+        marker in normalized
+        for marker in ("blocked", "critical", "off track", "red")
+    ):
+        return "🔴", discord.Color.red()
+    if any(
+        marker in normalized
+        for marker in ("at risk", "risk", "warning", "delayed", "delay")
+    ):
+        return "🟠", discord.Color.orange()
+    if any(
+        marker in normalized
+        for marker in ("on track", "healthy", "done", "complete", "green")
+    ):
+        return "🟢", discord.Color.green()
+    return "🔵", discord.Color.blurple()
+
+
+def _dashboard_task_progress(dashboard: ProjectDashboard, width: int = 10) -> str:
+    if dashboard.task_total <= 0:
+        return f"{'░' * width} **0%**\nNo tasks tracked yet."
+    ratio = max(0.0, min(1.0, dashboard.task_done / dashboard.task_total))
+    filled = min(width, max(0, int(ratio * width + 0.5)))
+    bar = "█" * filled + "░" * (width - filled)
+    percentage = round(ratio * 100)
+    return (
+        f"{bar} **{percentage}%**\n"
+        f"**{dashboard.task_done}/{dashboard.task_total}** done • "
+        f"**{dashboard.task_open}** open"
     )
-    embed.add_field(name="Goal", value=_trim(dashboard.goal), inline=True)
-    embed.add_field(name="Phase", value=_trim(dashboard.phase), inline=True)
-    embed.add_field(name="Sprint", value=_trim(dashboard.sprint), inline=True)
-    embed.add_field(name="Deadline", value=_trim(dashboard.deadline), inline=True)
-    embed.add_field(name="Status", value=_trim(dashboard.status), inline=True)
-    embed.add_field(name="Open Tasks", value=str(dashboard.task_open), inline=True)
-    embed.add_field(name="Completed Tasks", value=str(dashboard.task_done), inline=True)
-    embed.add_field(name="Open Bugs", value=str(dashboard.bug_open), inline=True)
-    embed.add_field(name="Meetings", value=str(dashboard.meetings_total), inline=True)
-    embed.set_footer(text=f"Updated: {dashboard.updated_at.isoformat(sep=' ', timespec='seconds')}")
+
+
+def build_dashboard_embed(dashboard: ProjectDashboard) -> discord.Embed:
+    status_icon, color = _dashboard_status_style(dashboard.status)
+    description = _trim(dashboard.description, default="No project description yet.")
+    embed = discord.Embed(
+        title=f"📊 {dashboard.name} • Project Dashboard",
+        description=f"> {description}",
+        color=color,
+        timestamp=dashboard.updated_at,
+    )
+    embed.add_field(
+        name="🎯 Goal",
+        value=_trim(dashboard.goal),
+        inline=False,
+    )
+    embed.add_field(
+        name="📌 Status",
+        value=f"{status_icon} **{_trim(dashboard.status)}**",
+        inline=True,
+    )
+    embed.add_field(name="🧭 Phase", value=_trim(dashboard.phase), inline=True)
+    embed.add_field(name="🏃 Sprint", value=_trim(dashboard.sprint), inline=True)
+    embed.add_field(name="📅 Deadline", value=_trim(dashboard.deadline), inline=True)
+    embed.add_field(
+        name="✅ Task Progress",
+        value=_dashboard_task_progress(dashboard),
+        inline=False,
+    )
+    embed.add_field(
+        name="🐞 Bugs",
+        value=f"**{dashboard.bug_open}** open • {dashboard.bug_total} total",
+        inline=True,
+    )
+    embed.add_field(
+        name="🗓️ Meetings",
+        value=f"**{dashboard.meetings_total}** recorded",
+        inline=True,
+    )
+    embed.set_footer(text="CSE-HQ • Project data updated")
     return embed
 
 
@@ -297,17 +360,10 @@ def build_weekly_dashboard_embed(
     week_key: str,
 ) -> discord.Embed:
     embed = build_dashboard_embed(dashboard)
-    embed.title = f"{dashboard.name} Weekly Dashboard"
-    embed.description = (
-        f"**{week_key}**\n"
-        f"{dashboard.description}"
-    )
-    embed.set_footer(
-        text=(
-            f"Weekly snapshot • Source updated "
-            f"{dashboard.updated_at.isoformat(sep=' ', timespec='seconds')}"
-        )
-    )
+    description = _trim(dashboard.description, default="No project description yet.")
+    embed.title = f"📆 {dashboard.name} • Weekly Snapshot"
+    embed.description = f"**{week_key}** · Team snapshot\n> {description}"
+    embed.set_footer(text=f"CSE-HQ • Weekly snapshot • {week_key}")
     return embed
 
 

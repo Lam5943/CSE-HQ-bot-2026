@@ -61,6 +61,15 @@ ROLE_MAP = {
 }
 
 
+def build_ai_session_thread_name(display_name: str, session_number: int) -> str:
+    prefix = "session của "
+    suffix = f" #{max(1, int(session_number))}"
+    clean_name = " ".join(str(display_name or "user").split()) or "user"
+    available = max(1, 80 - len(prefix) - len(suffix))
+    clean_name = clean_name[:available].rstrip() or "user"
+    return f"{prefix}{clean_name}{suffix}"
+
+
 class CSEHQBot(commands.Bot):
     def __init__(self, container: ServiceContainer, *, enable_message_content: bool = False):
         intents = discord.Intents.default()
@@ -72,6 +81,7 @@ class CSEHQBot(commands.Bot):
         self.enable_message_content = enable_message_content
         self._message_content_guidance_sent: set[tuple[str, str]] = set()
         self._weekly_dashboard_task: asyncio.Task[None] | None = None
+        self._ai_session_creation_locks: dict[str, asyncio.Lock] = {}
         forum_service = getattr(self.container, "forum_publishing_service", None)
         if forum_service is not None:
             forum_service.set_gateway(DiscordForumGateway(self))
@@ -662,11 +672,25 @@ class CSEHQBot(commands.Bot):
                 return
             actor = resolve_actor_from_interaction(interaction)
             try:
-                thread = await self._create_ai_thread(interaction)
-                session = self.container.ai_session_service.create_session(actor, str(thread.id))
+                lock = self._ai_session_creation_locks.setdefault(
+                    actor.user_id,
+                    asyncio.Lock(),
+                )
+                async with lock:
+                    session_number = (
+                        self.container.ai_session_service.next_session_number(actor)
+                    )
+                    thread = await self._create_ai_thread(
+                        interaction,
+                        session_number=session_number,
+                    )
+                    session = self.container.ai_session_service.create_session(
+                        actor,
+                        str(thread.id),
+                    )
                 await thread.send(embed=build_ai_session_intro_embed(session))
                 await interaction.response.send_message(
-                    f"Created AI session #{session['id']} in <#{thread.id}>.",
+                    f"Created your AI session in <#{thread.id}>.",
                     ephemeral=True,
                 )
             except CSEHQError as error:
@@ -694,7 +718,12 @@ class CSEHQBot(commands.Bot):
         view.add_item(list_button)
         return view
 
-    async def _create_ai_thread(self, interaction: discord.Interaction):
+    async def _create_ai_thread(
+        self,
+        interaction: discord.Interaction,
+        *,
+        session_number: int,
+    ):
         channel = interaction.channel
         if isinstance(channel, discord.Thread):
             if channel.type == discord.ChannelType.private_thread:
@@ -703,8 +732,13 @@ class CSEHQBot(commands.Bot):
         if channel is None or not hasattr(channel, "create_thread"):
             raise InvalidInputError("Use /ai in a server channel that supports private threads")
         try:
+            display_name = (
+                getattr(interaction.user, "display_name", None)
+                or getattr(interaction.user, "name", None)
+                or "user"
+            )
             return await channel.create_thread(
-                name=f"ai-session-{int(time.time())}"[:80],
+                name=build_ai_session_thread_name(display_name, session_number),
                 type=discord.ChannelType.private_thread,
                 invitable=False,
                 auto_archive_duration=60,
