@@ -396,7 +396,7 @@ def build_tasks_embed(
         embed.add_field(name="🔥 High Priority", value=metric_value(stats.get("high_priority", 0), "Tasks"), inline=True)
         embed.add_field(name="📅 With Deadline", value=metric_value(stats.get("with_deadline", 0), "Tasks"), inline=True)
     if not tasks:
-        embed.description = "No tasks found."
+        embed.description += "\n\n> No tasks found."
         return embed
     page_items, safe_page, total_pages = _page_slice(tasks, page)
     lines = [
@@ -444,18 +444,18 @@ def build_bugs_embed(
     embed = surface_embed("bugs", title=title, description="### Defect queue\nSee what is broken, how severe it is, and what needs attention.")
     stats = stats or {}
     embed.add_field(name="🔎 Filters", value=filters_label, inline=True)
-    embed.add_field(name="Total", value=str(len(bugs)), inline=True)
-    embed.add_field(name="Open", value=str(stats.get("open", 0)), inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(bugs), "Bugs"), inline=True)
+    embed.add_field(name="🚨 Open", value=metric_value(stats.get("open", 0), "Bugs"), inline=True)
     if stats:
-        embed.add_field(name="Critical", value=str(stats.get("critical", 0)), inline=True)
-        embed.add_field(name="Unassigned", value=str(stats.get("unassigned", 0)), inline=True)
+        embed.add_field(name="🔥 Critical", value=metric_value(stats.get("critical", 0), "Bugs"), inline=True)
+        embed.add_field(name="👤 Unassigned", value=metric_value(stats.get("unassigned", 0), "Bugs"), inline=True)
         embed.add_field(
             name="Resolved",
             value=str(stats.get("by_status", {}).get(BugStatus.RESOLVED.value, 0)),
             inline=True,
         )
     if not bugs:
-        embed.description = "No bugs found."
+        embed.description += "\n\n> No bugs found."
         return embed
     page_items, safe_page, total_pages = _page_slice(bugs, page)
     lines = [
@@ -500,7 +500,7 @@ def build_meetings_embed(
 ) -> discord.Embed:
     embed = surface_embed("meetings", description="### Team syncs\nUpcoming, active, and historical collaboration sessions.")
     embed.add_field(name="📚 Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(meetings)), inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(meetings), "Meetings"), inline=True)
     embed.add_field(
         name="Status",
         value=(
@@ -510,7 +510,7 @@ def build_meetings_embed(
         inline=True,
     )
     if not meetings:
-        embed.description = "No meetings found."
+        embed.description += "\n\n> No meetings found."
         return embed
     page_items, safe_page, total_pages = _page_slice(meetings, page)
     embed.description = "\n".join(
@@ -587,14 +587,14 @@ def build_decisions_embed(
 ) -> discord.Embed:
     embed = surface_embed("decisions", description="### Decision memory\nImportant choices, rationale, and context.")
     embed.add_field(name="📚 Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(decisions)), inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(decisions), "Decisions"), inline=True)
     embed.add_field(
-        name="Linked Meetings",
+        name="🔗 Linked Meetings",
         value=str(len([decision for decision in decisions if decision.get("meeting_id")])),
         inline=True,
     )
     if not decisions:
-        embed.description = "No decisions found."
+        embed.description += "\n\n> No decisions found."
         return embed
     page_items, safe_page, total_pages = _page_slice(decisions, page)
     embed.description = "\n".join(
@@ -646,15 +646,15 @@ def build_standup_embed(
 ) -> discord.Embed:
     embed = surface_embed("standup", description="### Daily pulse\nCurrent work, momentum, and blockers.")
     embed.add_field(
-        name="Today's Status",
+        name="🙋 Today's Status",
         value="Submitted" if today_entry else "Not submitted",
         inline=True,
     )
     embed.add_field(name="📚 Scope", value=mode_label, inline=True)
-    embed.add_field(name="Total", value=str(len(entries)), inline=True)
+    embed.add_field(name="📦 Total", value=metric_value(len(entries), "Updates"), inline=True)
     if today_entry:
         embed.add_field(
-            name="My Update",
+            name="📝 My Update",
             value=(
                 f"Previous: {_truncate(today_entry.get('previous') or '', 80)}\n"
                 f"Current: {_truncate(today_entry.get('current') or '', 80)}\n"
@@ -663,7 +663,7 @@ def build_standup_embed(
             inline=False,
         )
     if not entries:
-        embed.description = "No standups found."
+        embed.description += "\n\n> No standups found."
         return embed
     page_items, safe_page, total_pages = _page_slice(entries, page)
     embed.description = "\n".join(
