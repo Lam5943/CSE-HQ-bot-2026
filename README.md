@@ -515,6 +515,19 @@ where it has View Channel and Send Messages permissions. Bot accounts are ignore
 The welcome event only sends presentation content. It creates no project record,
 AI session, task, or external action.
 
+### Language Following
+
+CSE-HQ follows the language of the current user message, independent of the selected
+AI provider. Vietnamese or Vietnamese-English chat is answered primarily in natural
+Vietnamese while technical terms may remain in English. The current message wins
+over older conversation history when choosing response language, and ambiguous
+language defaults to Vietnamese.
+
+If a provider unexpectedly drifts into a clearly Chinese response when the user did
+not write in or request Chinese, CSE-HQ retries the generation once with an explicit
+language correction. Small Chinese quotes or translation questions do not trigger
+this safeguard.
+
 ### Personality Layer v1
 
 CSE-HQ owns its personality independently of Groq, Gemini, or any future model.

@@ -92,3 +92,32 @@ def test_personality_does_not_replace_grounding_or_image_safety():
     assert "No matching project records were retrieved" in instruction
     assert "Preserve source IDs exactly" in instruction
     assert "Current response posture: brainstorm" in instruction
+
+
+def test_prompt_language_policy_defaults_vietnamese_for_vietnamese_and_mixed_chat():
+    payload = PromptBuilder().build(
+        history_messages=[
+            {"role": "assistant", "content": "这是之前的回答。"},
+            {"role": "user", "content": "旧消息"},
+        ],
+        user_question="bro giải thích API này giúp mình với",
+        context_records=[],
+    )
+
+    instruction = payload.system_instruction
+    assert "<LANGUAGE_POLICY>" in instruction
+    assert "current user message has priority over conversation history" in instruction
+    assert "mixes Vietnamese with English" in instruction
+    assert "default to Vietnamese" in instruction
+    assert "Do not switch to Chinese" in instruction
+
+
+def test_prompt_language_policy_allows_explicit_language_request():
+    payload = PromptBuilder().build(
+        history_messages=[],
+        user_question="Please answer this in Chinese",
+        context_records=[],
+    )
+
+    instruction = payload.system_instruction
+    assert "unless the user writes in that language or explicitly asks for it" in instruction

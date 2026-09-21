@@ -156,6 +156,69 @@ def test_web_research_intent_detects_explicit_and_fresh_queries():
     assert ordinary.required is False
 
 
+class SequenceProvider:
+    def __init__(self, responses: list[str]):
+        self.responses = list(responses)
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        text = self.responses.pop(0)
+        return AIProviderResponse(
+            text=text,
+            provider="fake",
+            model="test",
+        )
+
+
+def test_chinese_drift_retries_once_in_user_language():
+    provider = SequenceProvider(
+        [
+            "这是一个明显错误的中文回答，包含足够多的汉字来触发语言纠正。",
+            "Bro, câu trả lời đúng phải bằng tiếng Việt.",
+        ]
+    )
+    service = build_ai_service(provider)
+
+    answer = asyncio.run(
+        service.answer_question(
+            actor=Actor("member-1", Role.MEMBER),
+            question="bro giải thích normalization giúp mình",
+            history_messages=[],
+        )
+    )
+
+    assert answer.content == "Bro, câu trả lời đúng phải bằng tiếng Việt."
+    assert len(provider.calls) == 2
+    assert "<LANGUAGE_CORRECTION>" in provider.calls[1]["system_instruction"]
+
+
+def test_explicit_chinese_request_does_not_trigger_language_retry():
+    provider = SequenceProvider(
+        ["这是按照用户要求提供的中文回答，内容足够长而且应该保持中文。"]
+    )
+    service = build_ai_service(provider)
+
+    answer = asyncio.run(
+        service.answer_question(
+            actor=Actor("member-1", Role.MEMBER),
+            question="Please answer this in Chinese",
+            history_messages=[],
+        )
+    )
+
+    assert "中文回答" in answer.content
+    assert len(provider.calls) == 1
+
+
+def test_small_chinese_quote_does_not_trigger_language_retry():
+    assert AIService._should_correct_chinese_response(
+        "bro từ 你好 nghĩa là gì?",
+        "Trong tiếng Trung, 你好 nghĩa là xin chào.",
+    ) is False
+
+
+
 class EmptyWebResearch:
     configured = True
 

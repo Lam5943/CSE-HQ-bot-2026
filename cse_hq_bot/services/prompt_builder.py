@@ -76,6 +76,17 @@ class PromptBuilder:
             if has_web_records
             else ""
         )
+        language_note = (
+            "<LANGUAGE_POLICY>\n"
+            "Reply in the language of the current user message. The current user message "
+            "has priority over conversation history when choosing response language. "
+            "If the user writes in Vietnamese, or mixes Vietnamese with English, reply "
+            "primarily in natural Vietnamese while preserving technical terms in English "
+            "when useful. If the language is ambiguous, default to Vietnamese. "
+            "Do not switch to Chinese or any other language unless the user writes in that "
+            "language or explicitly asks for it.\n"
+            "</LANGUAGE_POLICY>\n"
+        )
         personality = self.personality_policy.instruction_for(user_question)
         return (
             "You are CSE-HQ, the project's AI assistant. "
@@ -86,5 +97,6 @@ class PromptBuilder:
             f"{web_note}"
             f"{context_note} Distinguish project records, web evidence, and general knowledge. "
             "Preserve source IDs exactly when citing project records, and do not invent source IDs.\n\n"
+            f"{language_note}\n"
             f"{personality}"
         )
