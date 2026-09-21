@@ -4,6 +4,7 @@ from collections import Counter
 from dataclasses import replace
 
 from cse_hq_bot.ai.base import (
+    AIImage,
     AIMessage,
     AIProvider,
     AIProviderResponse,
@@ -56,20 +57,40 @@ class AIProviderRouter:
         messages: list[AIMessage],
         context_records: list[RetrievedContextRecord],
         timeout_seconds: int,
+        images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
         started = time.perf_counter()
+        primary_kwargs = {
+            "system_instruction": system_instruction,
+            "messages": messages,
+            "context_records": context_records,
+            "timeout_seconds": timeout_seconds,
+        }
+        if images:
+            primary_kwargs["images"] = images
         try:
-            response = await self.primary.generate(
-                system_instruction=system_instruction,
-                messages=messages,
-                context_records=context_records,
-                timeout_seconds=timeout_seconds,
-            )
+            response = await self.primary.generate(**primary_kwargs)
         except AIProviderError as primary_error:
             self._record_primary_failure(primary_error)
             if not isinstance(primary_error, FAILOVER_ELIGIBLE_ERRORS):
                 raise
             if not self.fallback_enabled:
+                raise
+            if images:
+                self.metrics["fallback_skipped_multimodal"] += 1
+                logger.warning(
+                    "AI fallback skipped for multimodal request",
+                    extra={
+                        "component": "ai_router",
+                        "operation": "fallback",
+                        "result": "skipped_multimodal",
+                        "primary_provider": self.primary_name,
+                        "fallback_provider": self.fallback_name,
+                        "image_count": len(images),
+                        "error_category": primary_error.__class__.__name__,
+                        "latency_ms": self._elapsed_ms(started),
+                    },
+                )
                 raise
             self.metrics["fallback_attempt"] += 1
             logger.warning(
