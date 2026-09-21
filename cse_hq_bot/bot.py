@@ -77,8 +77,6 @@ def strip_bot_mention(content: str, bot_user_id: int | str) -> str:
     return pattern.sub("", str(content or "")).strip()
 
 
-
-
 class CSEHQBot(commands.Bot):
     def __init__(
         self,
