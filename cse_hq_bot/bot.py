@@ -347,6 +347,19 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(github)
         self.tree.add_command(health)
         self.tree.add_command(setup)
+
+        if self.application_id is not None:
+            synced = await self.tree.sync()
+            logger.info(
+                "Application commands synced",
+                extra={
+                    "component": "discord",
+                    "operation": "command_sync",
+                    "result": "success",
+                    "command_count": len(synced),
+                },
+            )
+
         webhook_server = getattr(self.container, "github_webhook_server", None)
         if webhook_server is not None:
             await webhook_server.start()
