@@ -41,6 +41,7 @@ class PromptBuilder:
                     record.source_type == "web" for record in context_records
                 ),
                 user_question=user_question,
+                history_messages=history_messages,
                 image_count=image_count,
             ),
             messages=messages,
@@ -53,12 +54,18 @@ class PromptBuilder:
         *,
         has_web_records: bool = False,
         user_question: str,
+        history_messages: list[dict] | None = None,
         image_count: int = 0,
     ) -> str:
         context_note = (
             "Project records are provided below. Answer project-specific claims only from those records."
             if has_project_records
-            else "No matching project records were retrieved for this request. State that clearly for project-specific claims."
+            else (
+                "No matching project records were retrieved. Mention that only when the user "
+                "asks a project-specific claim that actually depends on project records. "
+                "For general questions, brainstorming, or image analysis, do not announce the "
+                "absence of project records."
+            )
         )
         image_note = (
             f"The current user message includes {image_count} image attachment(s). "
@@ -87,7 +94,10 @@ class PromptBuilder:
             "language or explicitly asks for it.\n"
             "</LANGUAGE_POLICY>\n"
         )
-        personality = self.personality_policy.instruction_for(user_question)
+        personality = self.personality_policy.instruction_for(
+            user_question,
+            history_messages=history_messages,
+        )
         return (
             "You are CSE-HQ, the project's AI assistant. "
             "You are strictly read-only unless CSE-HQ presents a separate confirmed action proposal; "
