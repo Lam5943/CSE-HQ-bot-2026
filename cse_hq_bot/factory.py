@@ -15,7 +15,9 @@ from cse_hq_bot.repositories.ai_action_repository import AIActionProposalReposit
 from cse_hq_bot.repositories.ai_session_repository import AISessionRepository
 from cse_hq_bot.repositories.bug_repository import BugRepository
 from cse_hq_bot.repositories.collab_repository import CollaborationRepository
-from cse_hq_bot.repositories.dashboard_publication_repository import DashboardPublicationRepository
+from cse_hq_bot.repositories.dashboard_publication_repository import (
+    DashboardPublicationRepository,
+)
 from cse_hq_bot.repositories.forum_repository import ForumRepository
 from cse_hq_bot.repositories.github_repository import GitHubRepositoryCache
 from cse_hq_bot.repositories.project_repository import ProjectRepository
