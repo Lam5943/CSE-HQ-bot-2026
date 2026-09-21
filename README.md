@@ -415,7 +415,7 @@ Opens the private AI assistant home panel with:
 - Natural thread conversation for authorized session owners only
 - Bounded persisted conversation history controlled by `AI_MAX_HISTORY_MESSAGES`
 - Native Gemini image understanding for PNG, JPEG, and WEBP attachments in private AI threads
-- Up to 4 images per message, 8 MB per image, and 16 MB total inline image bytes per request
+- Up to 4 images per message, 8 MB per image, and 12 MB total inline image bytes per request
 - Image bytes are transient request data; SQLite stores only attachment filename/media-type metadata in conversation history
 
 The assistant is intentionally bounded and permission-aware:
@@ -441,7 +441,7 @@ Vision input is deliberately bounded:
 
 - Maximum 4 images per message
 - Maximum 8 MB per image
-- Maximum 16 MB total image bytes per request, leaving headroom below Gemini's inline-request limit
+- Maximum 12 MB total image bytes per request, leaving headroom below Gemini's inline-request limit
 - Attachment bytes are validated against PNG/JPEG/WEBP file signatures
 - Downloads use a bounded timeout and are never written to the project filesystem
 - Raw image bytes are never persisted in SQLite
