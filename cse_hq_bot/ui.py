@@ -162,6 +162,7 @@ def build_ai_home_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(name="⚡ Actions", value="New Session • My Sessions", inline=False)
+    set_surface_footer(embed, "ai", detail="New Session • My Sessions")
     return embed
 
 
@@ -178,6 +179,7 @@ def build_ai_sessions_embed(sessions: list[dict]) -> discord.Embed:
         )
         for session in sessions[:10]
     )
+    set_surface_footer(embed, "ai", detail="Private threads")
     return embed
 
 
@@ -206,6 +208,7 @@ def build_ai_session_intro_embed(session: dict) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "ai", detail=f"Session #{session[\'id\']}")
     return embed
 
 
@@ -226,6 +229,7 @@ def build_ai_action_embed(proposal: ActionProposal) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "ai", detail="Confirm or Cancel")
     return embed
 
 
@@ -438,6 +442,7 @@ def build_task_detail_embed(task: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "tasks", detail=f"TASK-{int(task[\'id\']):03d}")
     return embed
 
 
@@ -505,6 +510,7 @@ def build_bug_detail_embed(bug: dict, *, can_modify: bool) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "bugs", detail=f"BUG-{int(bug[\'id\']):03d}")
     return embed
 
 
@@ -595,6 +601,7 @@ def build_meeting_detail_embed(
         actions.append("Add Note")
     actions.append("Create Action Task")
     embed.add_field(name="Available Actions", value=", ".join(actions), inline=False)
+    set_surface_footer(embed, "meetings", detail=_meeting_code(meeting))
     return embed
 
 
@@ -656,6 +663,7 @@ def build_decision_detail_embed(decision: dict, *, can_edit: bool) -> discord.Em
         value="Edit, Refresh, Back" if can_edit else "Refresh, Back",
         inline=False,
     )
+    set_surface_footer(embed, "decisions", detail=_decision_code(decision))
     return embed
 
 
@@ -1586,6 +1594,7 @@ def build_github_overview_embed(data: dict) -> discord.Embed:
         ),
         inline=False,
     )
+    set_surface_footer(embed, "github", detail="Read-only cache")
     return embed
 
 
