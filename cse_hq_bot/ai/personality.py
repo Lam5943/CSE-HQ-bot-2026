@@ -33,7 +33,7 @@ _PLANNING_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CELEBRATION_PATTERN = re.compile(
-    r"\b(?:done|fixed|green|passed|merged|shipped|works|working|success|"
+    r"\b(?:done|fixed|green|passed|merged|shipped|success|"
     r"xong|chạy rồi|thành công)\b",
     re.IGNORECASE,
 )
