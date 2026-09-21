@@ -1202,14 +1202,28 @@ class CSEHQBot(commands.Bot):
         if isinstance(error, AIConfigurationError):
             return "Cấu hình AI đang có vấn đề nên mình chưa gọi model được." if vietnamese else "The AI configuration is unavailable right now."
         if isinstance(error, AIRateLimitError):
+            retry_after = getattr(error, "retry_after_seconds", None)
+            wait_hint = (
+                f" khoảng {max(1, round(retry_after))}s"
+                if isinstance(retry_after, (int, float)) and retry_after > 0
+                else " một chút"
+            )
             if vietnamese:
                 if casual_bro:
                     return (
-                        "Con AI đang dính rate limit xíu bro 😭 mình đã retry rồi nhưng "
-                        "provider vẫn chưa nhả; thử reply lại chút nữa nha."
+                        "Mình đang dính rate limit xíu bro 😭 đã retry rồi mà quota vẫn "
+                        f"chưa nhả; thử reply lại sau{wait_hint} nha."
                     )
-                return "AI đang bị rate limit một chút; mình đã retry rồi, thử lại sau nhé."
-            return "The AI provider is rate-limiting requests right now; I retried, but it still needs a moment."
+                return f"AI đang bị rate limit; mình đã retry rồi, thử lại sau{wait_hint} nhé."
+            english_wait = (
+                f" about {max(1, round(retry_after))}s"
+                if isinstance(retry_after, (int, float)) and retry_after > 0
+                else " a moment"
+            )
+            return (
+                "The AI provider is rate-limiting requests right now; I retried, "
+                f"but it still needs{english_wait}."
+            )
         if isinstance(error, AITimeoutError):
             return "AI bị timeout mất rồi, thử lại câu này nha." if vietnamese else "The AI request timed out—try that message again."
         if isinstance(error, AIProviderError):
