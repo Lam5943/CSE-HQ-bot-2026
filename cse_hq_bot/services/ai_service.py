@@ -38,6 +38,13 @@ from cse_hq_bot.services.web_research_service import (
 SOURCE_ID_PATTERN = re.compile(
     r"\b(?:(?:TASK|BUG|MEETING|DEC|STANDUP|WEB)-\d+|GH-(?:ISSUE|PR)-\d+|GH-COMMIT-[0-9a-fA-F]{7,40})\b"
 )
+HAN_CHARACTER_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
+CHINESE_REQUEST_PATTERN = re.compile(
+    r"(?:answer|respond|reply).{0,24}(?:in )?chinese|"
+    r"trả lời.{0,24}(?:bằng )?tiếng trung|"
+    r"bằng tiếng trung|用中文|中文回答",
+    re.IGNORECASE,
+)
 @dataclass(frozen=True)
 class GroundedAnswer:
     content: str
@@ -219,6 +226,20 @@ class AIService:
         if images:
             provider_kwargs["images"] = images
         response = await self.provider.generate(**provider_kwargs)
+        if self._should_correct_chinese_response(question, response.text):
+            correction_kwargs = dict(provider_kwargs)
+            correction_kwargs["system_instruction"] = (
+                f"{prompt.system_instruction}\n\n"
+                "<LANGUAGE_CORRECTION>\n"
+                "The previous draft incorrectly switched to Chinese. Regenerate the "
+                "answer in the language of the current user message; default to natural "
+                "Vietnamese for Vietnamese or Vietnamese-English chat. Preserve factual "
+                "content and source IDs. Do not use Chinese unless the user explicitly "
+                "requested it.\n"
+                "</LANGUAGE_CORRECTION>"
+            )
+            response = await self.provider.generate(**correction_kwargs)
+
         valid, invalid = self._validate_source_refs(response.text, context_records)
         content = response.text
         if web_records:
@@ -239,6 +260,26 @@ class AIService:
             invalid_source_refs=invalid,
             retrieval_strategy=strategy,
         )
+
+    @staticmethod
+    def _should_correct_chinese_response(question: str, response_text: str) -> bool:
+        question_text = str(question or "")
+        response = str(response_text or "")
+        if CHINESE_REQUEST_PATTERN.search(question_text):
+            return False
+
+        question_han = HAN_CHARACTER_PATTERN.findall(question_text)
+        if len(question_han) >= 4:
+            return False
+
+        response_han = HAN_CHARACTER_PATTERN.findall(response)
+        if len(response_han) < 12:
+            return False
+
+        visible_characters = [char for char in response if not char.isspace()]
+        if not visible_characters:
+            return False
+        return len(response_han) / len(visible_characters) >= 0.15
 
     @staticmethod
     def _safe_web_source_title(value: object) -> str:
