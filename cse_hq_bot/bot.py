@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cse_hq_bot.ai.action_models import KnownMember
+from cse_hq_bot.ai.discord_image_input import extract_ai_images
 from cse_hq_bot.config import load_config
 from cse_hq_bot.discord_forum_gateway import DiscordForumGateway
 from cse_hq_bot.errors import (
@@ -569,29 +570,33 @@ class CSEHQBot(commands.Bot):
                     "Enable AI_ENABLE_MESSAGE_CONTENT and the Discord Message Content intent to use it."
                 )
             return
-        if not message.content.strip():
+        attachments = list(getattr(message, "attachments", []) or [])
+        if not message.content.strip() and not attachments:
             return
         actor = resolve_actor_from_user(message.author)
         known_members = known_members_from_message(message)
         started = time.monotonic()
         try:
+            images = await extract_ai_images(attachments)
+            request_kwargs = {
+                "actor": actor,
+                "session_id": int(session["id"]),
+                "discord_thread_id": str(message.channel.id),
+                "content": message.content,
+                "known_members": known_members,
+            }
+            if images:
+                request_kwargs["images"] = images
+
             typing = getattr(message.channel, "typing", None)
             if callable(typing):
                 async with typing():
                     answer = await self.container.ai_session_service.handle_message(
-                        actor=actor,
-                        session_id=int(session["id"]),
-                        discord_thread_id=str(message.channel.id),
-                        content=message.content,
-                        known_members=known_members,
+                        **request_kwargs
                     )
             else:
                 answer = await self.container.ai_session_service.handle_message(
-                    actor=actor,
-                    session_id=int(session["id"]),
-                    discord_thread_id=str(message.channel.id),
-                    content=message.content,
-                    known_members=known_members,
+                    **request_kwargs
                 )
             if answer.action_proposal is not None:
                 view = AIActionConfirmationView(
@@ -620,6 +625,7 @@ class CSEHQBot(commands.Bot):
                     "retrieval_strategy": answer.retrieval_strategy,
                     "source_ids": answer.source_refs,
                     "invalid_source_ids": answer.invalid_source_refs,
+                    "image_count": len(images),
                     "latency_seconds": round(time.monotonic() - started, 3),
                     "outcome": "success",
                 },
