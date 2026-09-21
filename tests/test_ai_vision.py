@@ -22,7 +22,6 @@ from cse_hq_bot.services.ai_session_service import AISessionService
 from cse_hq_bot.services.prompt_builder import PromptBuilder
 from cse_hq_bot.services.retrieval_planner import RetrievalPlanner
 
-
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"image-data"
 JPEG_BYTES = b"\xff\xd8\xff" + b"image-data"
 WEBP_BYTES = b"RIFF" + b"\x04\x00\x00\x00" + b"WEBP" + b"data"
