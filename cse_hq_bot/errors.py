@@ -78,6 +78,10 @@ class AIActionAlreadyHandledError(AIActionError):
     """Raised when a proposal is no longer pending."""
 
 
+class AIActionOwnershipError(AIActionError):
+    """Raised when someone other than the requester handles a proposal."""
+
+
 class GitHubProviderError(CSEHQError):
     """Raised when GitHub provider operations fail."""
 

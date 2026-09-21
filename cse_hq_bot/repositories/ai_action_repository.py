@@ -120,9 +120,9 @@ class AIActionProposalRepository:
             )
             return cur.rowcount == 1
 
-    def mark_executed(self, proposal_id: int, executed_at: str) -> None:
+    def mark_executed(self, proposal_id: int, executed_at: str) -> bool:
         with self.db.connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE ai_action_proposals
                 SET status = 'EXECUTED', executed_at = ?, error_code = NULL
@@ -130,10 +130,11 @@ class AIActionProposalRepository:
                 """,
                 (executed_at, proposal_id),
             )
+            return cur.rowcount == 1
 
-    def mark_failed(self, proposal_id: int, error_code: str) -> None:
+    def mark_failed(self, proposal_id: int, error_code: str) -> bool:
         with self.db.connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE ai_action_proposals
                 SET status = 'FAILED', error_code = ?
@@ -141,6 +142,7 @@ class AIActionProposalRepository:
                 """,
                 (error_code, proposal_id),
             )
+            return cur.rowcount == 1
 
     def fail_pending_for_session(self, session_id: int) -> int:
         with self.db.connect() as conn:
