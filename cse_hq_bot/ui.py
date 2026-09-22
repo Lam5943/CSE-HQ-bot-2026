@@ -22,6 +22,7 @@ from cse_hq_bot.models import (
     BugStatus,
     MeetingStatus,
     ProjectDashboard,
+    Role,
     TaskStatus,
 )
 from cse_hq_bot.permissions import ensure_can_modify_bug, ensure_can_modify_task
@@ -167,6 +168,56 @@ def build_welcome_embed(
         inline=False,
     )
     set_surface_footer(embed, "welcome", detail="Glad you're here")
+    return embed
+
+
+def build_help_embed(actor: Actor) -> discord.Embed:
+    is_admin = actor.role in {Role.LEADER, Role.CO_LEAD}
+    access_label = "Admin" if is_admin else "Member"
+    embed = surface_embed(
+        "project",
+        title=f"Help • {access_label}",
+        description=(
+            f"### {access_label} commands\n"
+            "Your access is determined by whether your highest role is above the bot's highest role."
+        ),
+    )
+    embed.add_field(
+        name="Everyone",
+        value=(
+            "`/dashboard` — project overview\n"
+            "`/tasks` — browse and manage permitted tasks\n"
+            "`/bugs` — browse and manage permitted bugs\n"
+            "`/meetings` · `/decisions` · `/standup` — team workflows\n"
+            "`/weekly_report` — current progress report\n"
+            "`/github` — read-only development overview\n"
+            "`/ai` — private AI workspace\n"
+            "`/help` — show this guide"
+        ),
+        inline=False,
+    )
+    if is_admin:
+        embed.add_field(
+            name="Admin only",
+            value=(
+                "`/setup dashboard` — channel, schedule, and project week\n"
+                "`/setup forums` — forum publishing destinations\n"
+                "`/weekly_dashboard` — publish or refresh the public snapshot\n"
+                "`/health` — operational diagnostics\n"
+                "Admin access also unlocks project-wide management actions."
+            ),
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name="Member access",
+            value=(
+                "Members can update records they created or are assigned to. "
+                "Project-wide settings and admin operations stay hidden."
+            ),
+            inline=False,
+        )
+    set_surface_footer(embed, "project", detail=f"Access: {access_label}")
     return embed
 
 

@@ -101,6 +101,7 @@ def test_fresh_database_and_command_surface_start_from_zero(tmp_path, monkeypatc
             "weekly_dashboard",
             "ai",
             "health",
+            "help",
             "setup",
         }
         setup = bot.tree.get_command("setup")

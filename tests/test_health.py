@@ -341,7 +341,7 @@ def test_health_requires_leadership_and_command_is_restricted(tmp_path: Path):
             user=SimpleNamespace(id=42), response=response
         )
         await command.callback(interaction)
-        assert "leaders and co-leads" in response.message
+        assert "admins" in response.message
         assert response.kwargs["ephemeral"] is True
         await bot.close()
 

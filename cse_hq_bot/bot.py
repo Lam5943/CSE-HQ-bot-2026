@@ -45,6 +45,7 @@ from cse_hq_bot.ui import (
     build_decisions_embed,
     build_github_overview_embed,
     build_health_embed,
+    build_help_embed,
     build_meetings_embed,
     build_standup_embed,
     build_tasks_embed,
@@ -210,6 +211,14 @@ class CSEHQBot(commands.Bot):
         async def weekly_report(interaction: discord.Interaction) -> None:
             report = self.container.report_service.weekly_progress_report()
             await interaction.response.send_message(report, ephemeral=True)
+
+        @app_commands.command(name="help", description="Show commands available to your access level")
+        async def help_command(interaction: discord.Interaction) -> None:
+            actor = resolve_actor_from_interaction(interaction)
+            await interaction.response.send_message(
+                embed=build_help_embed(actor),
+                ephemeral=True,
+            )
 
         @app_commands.command(name="meetings", description="Open meetings panel")
         async def meetings(interaction: discord.Interaction) -> None:
@@ -482,6 +491,7 @@ class CSEHQBot(commands.Bot):
         self.tree.add_command(tasks)
         self.tree.add_command(bugs)
         self.tree.add_command(weekly_report)
+        self.tree.add_command(help_command)
         self.tree.add_command(meetings)
         self.tree.add_command(decisions)
         self.tree.add_command(standup)
@@ -1277,14 +1287,17 @@ def resolve_actor(user_id: int, role_name: str = "member") -> Actor:
 
 
 def resolve_actor_from_user(user: discord.abc.User) -> Actor:
-    role_name = "member"
-    if isinstance(user, discord.Member):
-        role_names = {role.name.lower() for role in user.roles}
-        if "leader" in role_names:
-            role_name = "leader"
-        elif {"co-lead", "co lead", "co_lead"} & role_names:
-            role_name = "co-lead"
-    return resolve_actor(user.id, role_name)
+    if isinstance(user, discord.Member) and member_role_is_above_bot(user):
+        return Actor(user_id=str(user.id), role=Role.LEADER)
+    return Actor(user_id=str(user.id), role=Role.MEMBER)
+
+
+def member_role_is_above_bot(member: discord.Member) -> bool:
+    bot_member = member.guild.me
+    return bool(
+        bot_member is not None
+        and member.top_role.position > bot_member.top_role.position
+    )
 
 
 def known_members_from_message(message: discord.Message) -> list[KnownMember]:

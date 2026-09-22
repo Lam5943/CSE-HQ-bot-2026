@@ -28,6 +28,7 @@ from cse_hq_bot.ui import (
     build_dashboard_embed,
     build_decision_detail_embed,
     build_decisions_embed,
+    build_help_embed,
     build_meeting_detail_embed,
     build_meetings_embed,
     build_standup_embed,
@@ -193,6 +194,18 @@ def test_build_tasks_and_bugs_embed_empty_states():
     bug_embed = build_bugs_embed([], show_all=False)
     assert "No tasks found." in (task_embed.description or "")
     assert "No bugs found." in (bug_embed.description or "")
+
+
+def test_help_embed_separates_admin_and_member_commands():
+    admin = build_help_embed(Actor("admin", Role.LEADER))
+    member = build_help_embed(Actor("member", Role.MEMBER))
+
+    assert admin.title.endswith("CSE-HQ • Help • Admin")
+    assert any(field.name == "Admin only" for field in admin.fields)
+    assert "/setup dashboard" in "\n".join(str(field.value) for field in admin.fields)
+    assert member.title.endswith("CSE-HQ • Help • Member")
+    assert all(field.name != "Admin only" for field in member.fields)
+    assert "/setup dashboard" not in "\n".join(str(field.value) for field in member.fields)
 
 
 def test_build_tasks_embed_paginates_and_shows_scope():

@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from cse_hq_bot.ai.base import AIProviderResponse, RetrievedContextRecord
-from cse_hq_bot.bot import CSEHQBot, strip_bot_mention
+from cse_hq_bot.bot import CSEHQBot, member_role_is_above_bot, strip_bot_mention
 from cse_hq_bot.config import load_config
 from cse_hq_bot.models import Actor, Role
 from cse_hq_bot.services.ai_service import AIService, GroundedAnswer
@@ -27,6 +27,21 @@ class RecordingProvider:
             provider="fake",
             model="test",
         )
+
+
+def test_member_admin_access_requires_role_above_bot():
+    bot_member = SimpleNamespace(top_role=SimpleNamespace(position=10))
+    guild = SimpleNamespace(me=bot_member)
+
+    assert member_role_is_above_bot(
+        SimpleNamespace(guild=guild, top_role=SimpleNamespace(position=11))
+    )
+    assert not member_role_is_above_bot(
+        SimpleNamespace(guild=guild, top_role=SimpleNamespace(position=10))
+    )
+    assert not member_role_is_above_bot(
+        SimpleNamespace(guild=guild, top_role=SimpleNamespace(position=9))
+    )
 
 
 class MinimalProjectContext:
