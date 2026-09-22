@@ -7,7 +7,7 @@ LEADERSHIP_ROLES = {Role.LEADER, Role.CO_LEAD}
 
 def ensure_can_manage_project(actor: Actor) -> None:
     if actor.role not in LEADERSHIP_ROLES:
-        raise PermissionDeniedError("Only leaders and co-leads can manage project settings")
+        raise PermissionDeniedError("Only admins can manage project settings")
 
 
 

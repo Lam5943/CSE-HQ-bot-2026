@@ -123,6 +123,8 @@ def test_groq_provider_uses_openai_compatible_responses_api(monkeypatch):
     assert responses.calls[0]["store"] is False
     assert responses.calls[0]["max_output_tokens"] == 700
     assert "<SYSTEM_INSTRUCTIONS>\nread only" in responses.calls[0]["input"]
+    assert "complete answer in at most 550 tokens" in responses.calls[0]["input"]
+    assert "Never stop mid-list or mid-sentence" in responses.calls[0]["input"]
 
 
 def test_groq_provider_sends_inline_base64_images(monkeypatch):

@@ -5,7 +5,7 @@
 
 CSE-HQ is a Discord-native project coordination bot. Version 1.0.0 provides:
 
-- Role-aware project, task, and bug operations for Leaders, Co-Leads, and Members
+- Role-aware project, task, and bug operations for Admins and Members
 - SQLite-backed persistence for project settings, tasks, bugs, meetings, decisions, and standups
 - Weekly progress reporting
 - Public weekly dashboard snapshots with SQLite-backed scheduling and deduplication
@@ -346,11 +346,12 @@ local process and SQLite state; it does not contact external providers.
 
 - **Member:** can use read surfaces, manage permitted assigned/owned work, submit
   their own standup, and use their own private AI sessions.
-- **Leader / CoLead:** can perform project-level management, GitHub sync, Forum
+- **Admin:** any member whose highest Discord role is above the bot's highest role; can perform project-level management, GitHub sync, Forum
   setup, weekly dashboard setup/manual publishing, health diagnostics, and other privileged domain mutations.
 - Authorization is enforced by application services. Discord buttons, command
   visibility, thread privacy, and ephemeral responses are not the sole security
   boundary.
+- Members at the same role position as the bot or below it receive Member access.
 
 ## Bot Usage
 
@@ -366,11 +367,12 @@ The stable command surface is:
 | `/standup` | All roles | Own daily submission plus permitted team/history views |
 | `/github` | All roles; sync restricted to Leader/CoLead | Read-only cached GitHub context |
 | `/weekly_report` | All roles | Current weekly progress report |
-| `/weekly_dashboard` | Leader/CoLead only | Publish or refresh the configured project-week dashboard snapshot |
+| `/help` | All roles | Show a command guide filtered to Admin or Member access |
+| `/weekly_dashboard` | Admin only | Publish or refresh the configured project-week dashboard snapshot |
 | `/ai` | All roles | Private grounded AI sessions and confirmed proposals |
-| `/health` | Leader/CoLead only | Bounded operational diagnostics |
-| `/setup forums` | Leader/CoLead only | Persist Discord Forum mappings |
-| `/setup dashboard` | Leader/CoLead only | Configure the public dashboard channel, project week, weekday, and local publish time |
+| `/health` | Admin only | Bounded operational diagnostics |
+| `/setup forums` | Admin only | Persist Discord Forum mappings |
+| `/setup dashboard` | Admin only | Configure the public dashboard channel, project week, weekday, and local publish time |
 
 ### `/dashboard`
 

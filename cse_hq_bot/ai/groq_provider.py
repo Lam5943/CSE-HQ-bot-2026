@@ -73,7 +73,16 @@ class GroqProvider:
         timeout_seconds: int,
         images: list[AIImage] | None = None,
     ) -> AIProviderResponse:
-        prompt = render_provider_prompt(system_instruction, messages, context_records)
+        completion_budget = max(100, self.max_output_tokens - 150)
+        bounded_instruction = (
+            f"{system_instruction}\n"
+            "<RESPONSE_BUDGET>\n"
+            f"Return a complete answer in at most {completion_budget} tokens. "
+            "Prioritize the direct answer and essential tradeoffs, shorten optional detail, "
+            "and always finish the final sentence. Never stop mid-list or mid-sentence.\n"
+            "</RESPONSE_BUDGET>"
+        )
+        prompt = render_provider_prompt(bounded_instruction, messages, context_records)
         request_input: str | list[dict] = prompt
         if images:
             request_input = [
